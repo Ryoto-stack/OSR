@@ -125,7 +125,7 @@ function renderRail() {
           <span class="dot" style="background:var(--ok)"></span>
           <span class="label">${esc2(s.settings.yourName)}${s.settings.company ? ' · ' + esc2(s.settings.company) : ''}</span>
         </div>` : `<button class="rail-item" data-act="settings"><span class="dot" style="background:var(--warn)"></span><span class="label">Add your name &amp; signature</span></button>`}
-      <div class="save-state ${Store.isDirty ? 'dirty' : ''}" id="save-state"><i></i><span>${KV.available ? (Store.isDirty ? 'Saving…' : 'Saved on this PC') : 'Not persisting!'}</span></div>
+      <div class="save-state ${Store.isDirty ? 'dirty' : ''}" id="save-state" title="${Store.mode === 'idb' ? 'IndexedDB · ' + DB.name : 'local storage'}"><i></i><span>${Store.isDirty ? 'Saving…' : (Store.mode === 'idb' ? 'Saved to the local database' : (KV.available ? 'Saved on this PC' : 'Not persisting!'))}</span></div>
     </div>
   </nav>`;
 }
@@ -442,6 +442,9 @@ function renderSettings() {
   const s = Store.s.settings;
   const accents = ['#2f6df6', '#0f9d8a', '#7b5cd6', '#d98314', '#c1362f', '#2f8a3f', '#b0457a', '#4a5b6a'];
   const tplCount = Store.s.templates.length, phCount = Store.s.phrases.length;
+  let legacyBlob = 0;
+  try { legacyBlob = (localStorage.getItem(LS_KEY) || '').length; } catch (e) { legacyBlob = 0; }
+  if (Store.mode === 'idb' && !legacyBlob) legacyBlob = 0;
   return `
   <div class="main-head"><div><div class="main-title">Settings &amp; backup</div>
     <div class="main-desc">Everything is stored in this browser profile on this machine — no account, no server, nothing sent anywhere. Back it up by exporting.</div></div></div>
@@ -481,6 +484,22 @@ function renderSettings() {
     </div>
 
     <div class="set-card">
+      <h4>${ICON.shelf} Where your data lives</h4>
+      <p class="desc">One local database on this machine — <b>no server, no account, nothing uploaded</b>. Text, files and screenshots are stored as separate rows, so a 4 MB screenshot can no longer stop your templates from saving.</p>
+      <div class="meta-row" id="db-summary"><span class="help">checking…</span></div>
+      <div id="db-tables" class="tagchips" style="margin-top:6px"></div>
+      ${legacyBlob ? `<div class="help" style="margin-top:6px">A pre-migration copy is still in local storage (${esc2(bytes(legacyBlob))}). Keep it as a rollback, or free the space once you have exported a backup.</div>` : ''}
+      <div class="row" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" data-act="db-verify">${ICON.check} Verify database</button>
+        <button class="btn" data-act="db-repair">${ICON.bolt} Rewrite every row</button>
+        <button class="btn" data-act="db-diagnostics">${ICON.copy} Copy diagnostics</button>
+        ${legacyBlob ? `<button class="btn ghost" data-act="db-clear-legacy">Delete the old copy</button>` : ''}
+        <button class="btn ghost" data-act="db-console">Console commands</button>
+      </div>
+      <div class="help">Storage used: <span id="storage-used">…</span> · last write <span id="db-last">…</span></div>
+    </div>
+
+    <div class="set-card">
       <h4>${ICON.download} Backup &amp; move it</h4>
       <p class="desc">Export writes one JSON file with every template, phrase, category, case, and (optionally) the files themselves. Keep it in your OneDrive / Dropbox / a folder and you can be back up in 10 seconds on any machine.</p>
       <div class="row" style="display:flex;gap:7px;flex-wrap:wrap">
@@ -490,8 +509,7 @@ function renderSettings() {
         <button class="btn" data-act="export-md">Export as Markdown</button>
         <button class="btn" data-act="print">Print cheat sheet</button>
       </div>
-      <div class="help">Current workspace: <b>${tplCount}</b> templates · <b>${phCount}</b> phrases · <b>${Store.s.files.length}</b> files · <b>${Store.s.cases.length}</b> cases.
-      ${navigator.storage?.estimate ? '' : ''} Storage used: <span id="storage-used">…</span></div>
+      <div class="help">Current workspace: <b>${tplCount}</b> templates · <b>${phCount}</b> phrases · <b>${Store.s.files.length}</b> files · <b>${Store.s.cases.length}</b> cases, all in ${Store.mode === 'idb' ? 'the local database' : 'this browser\'s local storage'}.</div>
     </div>
 
     <div class="set-card">

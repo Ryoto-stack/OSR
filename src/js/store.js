@@ -1,10 +1,16 @@
 /* =========================================================
-   store.js — state, persistence, file blob storage
+   store.js — the in-memory workspace on top of db.js.
+
+   State lives in memory (everything renders from it), and every change is
+   written through to the local database as individual rows. If IndexedDB is
+   unavailable we keep working on the localStorage mirror instead — older,
+   smaller, and noisier about it, but never silent about losing your work.
+
    No build step, no deps. Works from file:// and http://.
    ========================================================= */
 
-const SCHEMA = 3;
-const LS_KEY = 'osr.desk.state.v' + SCHEMA;
+/* STATE_SCHEMA, LS_KEY and LS_MIRROR come from db.js (loaded first) */
+const SCHEMA = STATE_SCHEMA;
 
 const uid = (p = 'id') =>
   p + '_' + Date.now().toString(36).slice(-5) + Math.random().toString(36).slice(2, 7);
@@ -38,85 +44,66 @@ const KV = (() => {
   };
 })();
 
-/* ---------- IndexedDB blob vault (falls back to dataURLs in KV) ---------- */
+/* ---------- the file/blob store: DB.blobs, else data URLs in KV ---------- */
 const Vault = (() => {
-  const DB = 'osr-desk-files', STORE = 'blobs';
-  let dbp = null;
-  let broken = false;
-
-  function open() {
-    if (broken || typeof indexedDB === 'undefined') return Promise.resolve(null);
-    if (dbp) return dbp;
-    dbp = new Promise((res) => {
-      try {
-        const req = indexedDB.open(DB, 1);
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-        };
-        req.onsuccess = () => res(req.result);
-        req.onerror = () => { broken = true; res(null); };
-        req.onblocked = () => { broken = true; res(null); };
-      } catch (e) { broken = true; res(null); }
-    });
-    return dbp;
-  }
-
-  function tx(mode, fn) {
-    return open().then((db) => {
-      if (!db) throw new Error('no-idb');
-      return new Promise((res, rej) => {
-        try {
-          const t = db.transaction(STORE, mode);
-          t.oncomplete = () => res();
-          t.onerror = () => rej(t.error);
-          t.onabort = () => rej(t.error);
-          fn(t.objectStore(STORE), res, rej);
-        } catch (e) { rej(e); }
-      });
-    });
-  }
-
   return {
-    get mode() { return broken || typeof indexedDB === 'undefined' ? 'kv' : 'idb'; },
-    async put(id, blob) {
-      try {
-        await tx('readwrite', (s, res, rej) => { s.put(blob, id).onsuccess = res; });
-        return { kind: 'idb' };
-      } catch (e) {
-        // fallback: inline small files as data URLs in KV
+    /** 'idb' when bytes live in the database, 'kv' when they are inlined */
+    get mode() { return DB.available ? 'idb' : 'kv'; },
+    async put(id, blob, meta) {
+      if (DB.available) {
         try {
-          const dataUrl = await blobToDataURL(blob);
-          const ok = KV.set('osr.file.' + id, dataUrl);
-          return { kind: ok ? 'kv' : 'mem', dataUrl };
-        } catch (e2) { return { kind: 'mem' }; }
+          const res = await DB.blobPut(id, blob, meta);
+          return { kind: 'idb', size: res.size };
+        } catch (e) { /* full, closed, or refused — fall through to KV */ }
       }
+      try {
+        const dataUrl = await blobToDataURL(blob);
+        const saved = KV.set('osr.file.' + id, dataUrl);
+        return { kind: saved ? 'kv' : 'mem', dataUrl };
+      } catch (e) { return { kind: 'mem' }; }
     },
     async get(id) {
-      try {
-        return await new Promise((res, rej) => {
-          tx('readonly', (s) => {
-            const r = s.get(id);
-            r.onsuccess = () => res(r.result ?? null);
-            r.onerror = () => rej(r.error);
-          }).catch(rej);
-        });
-      } catch (e) {
-        const dv = KV.get('osr.file.' + id);
-        if (dv) { const r = await fetch(dv); return await r.blob(); }
-        return null;
+      if (DB.available) {
+        try {
+          const blob = await DB.blobGet(id);
+          if (blob) return blob;
+        } catch (e) { /* fall through to KV */ }
       }
+      const dv = KV.get('osr.file.' + id);
+      if (!dv) return null;
+      return dataURLToBlob(dv);
     },
     async del(id) {
-      try { await tx('readwrite', (s, res, rej) => { s.delete(id).onsuccess = res; }); } catch (e) { /* ignore */ }
+      if (DB.available) { try { await DB.blobDel(id); } catch (e) { /* ignore */ } }
       KV.del('osr.file.' + id);
     },
     async exportOne(id) {
       const b = await this.get(id);
       return b ? await blobToDataURL(b) : null;
+    },
+    /** how much room is left, when the browser will say */
+    async estimate() {
+      try {
+        if (navigator.storage && navigator.storage.estimate) return await navigator.storage.estimate();
+      } catch (e) { /* ignore */ }
+      return null;
     }
   };
 })();
+
+function dataURLToBlob(dataUrl) {
+  const s = String(dataUrl || '');
+  const i = s.indexOf(',');
+  if (i < 0) return null;
+  const meta = (s.slice(0, i).slice(5).split(';')[0] || 'application/octet-stream').trim() || 'application/octet-stream';
+  try {
+    const bin = atob(s.slice(i + 1));
+    const out = new Uint8Array(bin.length);
+    for (let n = 0; n < bin.length; n++) out[n] = bin.charCodeAt(n);
+    return new Blob([out.buffer], { type: meta });
+  } catch (e) { return null; }
+}
+
 
 const TEXTISH = /\.(txt|md|markdown|csv|tsv|log|json|jsonl|srt|vtt|html?|xml|ya?ml|ini|conf|rtf|eml|prn)$/i;
 function looksTextual(f) {
@@ -183,6 +170,7 @@ const Store = (() => {
   const subs = new Set();
   let saveTimer = null;
   let dirty = false;
+  let booted = false;
 
   function emit(kind) {
     subs.forEach((f) => { try { f(kind, state); } catch (e) { console.error(e); } });
@@ -217,7 +205,10 @@ const Store = (() => {
     return out;
   }
 
-  function load() {
+  /* ---------- reading ---------- */
+
+  /** the old way: one JSON blob in localStorage (also our fallback path) */
+  function loadFromKV() {
     let s = null;
     const raw = KV.get(LS_KEY);
     if (raw) { try { s = JSON.parse(raw); } catch (e) { s = null; } }
@@ -228,13 +219,100 @@ const Store = (() => {
         if (rr) { try { const p = JSON.parse(rr); if (p && p.templates) { s = p; break; } } catch (e) {} }
       }
     }
-    if (s) { state = sanitize(s); }
-    else { state = blankState(); state.__fresh = true; }
+    return s ? sanitize(s) : null;
+  }
+
+  /** rows from the database → the shape the app renders from */
+  function hydrate(rows) {
+    const s = blankState();
+    const app = (rows.meta || []).find((m) => m.key === 'app');
+    const st = (rows.settings || []).find((r) => r.key === 'settings');
+    if (st) {
+      s.settings = sanitize({ settings: st }).settings;
+      s.onboarded = st.onboarded !== false;
+      if (st.installedAt) s.installedAt = st.installedAt;
+    }
+    for (const r of (rows.vars || [])) s.vars[r.key] = r.value;
+    s.categories = (rows.categories || []).slice().sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+    s.templates = rows.templates || [];
+    s.phrases = rows.phrases || [];
+    s.files = rows.files || [];        // each row already carries `stored` + `size`
+    s.cases = rows.cases || [];
+    s.activity = rows.activity || [];
+    s.trash = rows.trash || [];
+    if (app && app.createdAt) s.installedAt = app.createdAt;
+    return sanitize(s);
+  }
+
+  function isEmpty(s) {
+    return !(s && (s.templates.length || s.phrases.length || s.categories.length || s.cases.length || Object.keys(s.vars).length));
+  }
+
+  /**
+   * Boot-time load. Prefers the database, migrates a localStorage workspace
+   * into it once, and falls back to the blob if the DB can't be opened.
+   */
+  async function init() {
+    if (booted) return state;
+    booted = true;
+    await DB.open();
+    if (DB.available) {
+      let rows = null;
+      try { rows = await DB.readAll(); } catch (e) { rows = null; }
+      const fromDb = rows ? hydrate(rows) : null;
+      if (fromDb && !isEmpty(fromDb)) {
+        state = fromDb;
+        mode = 'idb';
+        DB.prime(state);
+        DB.absorbLegacyVault().then((moved) => { if (moved) emit('data'); }).catch(() => {});
+        return state;
+      }
+      // fresh (or just-migrated) database: take whatever the old blob has
+      const old = loadFromKV();
+      const hasOld = !!old && !isEmpty(old);
+      state = hasOld ? old : blankState();
+      if (!hasOld) state.__fresh = true;
+      mode = 'idb';
+      try {
+        await DB.writeAll(state);
+        await DB.setMeta('app', { dbVersion: DB_VERSION, stateSchema: SCHEMA, createdAt: state.installedAt, migratedFrom: hasOld ? 'localStorage' : 'seed' });
+        if (hasOld) {
+          // keep the pre-migration blob where it is: it is the rollback copy
+          KV.set(LS_MIRROR, JSON.stringify({ db: true, at: nowISO(), note: 'workspace now lives in IndexedDB; the v3 blob was left as the last pre-migration snapshot' }));
+        }
+        DB.prime(state);
+        DB.absorbLegacyVault().catch(() => {});
+      } catch (e) {
+        mode = 'kv';     // write-through failed: behave like a browser without IDB
+      }
+      return state;
+    }
+    mode = 'kv';
+    state = loadFromKV();
+    if (!state) { state = blankState(); state.__fresh = true; }
     return state;
   }
 
-  function persist() {
-    dirty = false;
+  /** kept for the synchronous call sites (tests, reset paths) */
+  function load() {
+    if (!state) state = loadFromKV() || blankState();
+    return state;
+  }
+
+
+  /* ---------- writing ---------- */
+
+  let mode = 'idb';
+  let failed = false;
+
+  function mirrorKV() {
+    // a tiny marker, not the workspace: the DB holds the truth
+    try {
+      KV.set(LS_MIRROR, JSON.stringify({ db: true, at: nowISO(), n: { t: state.templates.length, p: state.phrases.length, f: state.files.length } }));
+    } catch (e) { /* nothing to do */ }
+  }
+
+  function persistKV() {
     let ok = KV.set(LS_KEY, JSON.stringify(state));
     if (!ok) {
       // storage was full: shed the heavy, re-creatable bits before giving up
@@ -246,8 +324,35 @@ const Store = (() => {
         if (ok) Bus.toast('Browser storage was full — image previews were dropped to keep your text. Export a backup and clear some files off the shelf.', 'warn', 11000);
       } catch (e) { /* nothing more to try */ }
     }
-    if (!ok) Bus.toast('Could not save to this browser. Export a backup (Settings → Export) before you close the tab.', 'bad', 14000);
+    if (!ok) { failed = true; Bus.toast('Could not save to this browser. Export a backup (Settings → Export) before you close the tab.', 'bad', 14000); }
+    else failed = false;
+    return ok;
+  }
+
+  /** write the workspace through to wherever it belongs; resolves when durable */
+  async function persist() {
+    dirty = false;
+    if (mode === 'idb' && DB.available) {
+      try {
+        const r = await DB.flushState(state);
+        if (r.touched) { DB.noteSaved(nowISO()); mirrorKV(); }
+        failed = false;
+        emit('saved');
+        return true;
+      } catch (e) {
+        // the database let us down mid-session: never lose the edit, fall back
+        DB.noteWriteError(e);
+        mode = 'kv';
+        DB.announce('degraded', { error: String((e && e.message) || e) });
+        Bus.toast('The browser database refused that write, so it is saved in the simpler local-storage mode instead. Settings → Where your data lives has the details.', 'warn', 12000);
+        const ok = persistKV();
+        emit('saved');
+        return ok;
+      }
+    }
+    const ok = persistKV();
     emit('saved');
+    return ok;
   }
 
   function save() {
@@ -260,7 +365,11 @@ const Store = (() => {
   return {
     get s() { return state; },
     get isDirty() { return dirty; },
+    get mode() { return mode === 'idb' && DB.available ? 'idb' : 'kv'; },
+    get lastSaveFailed() { return failed; },
+    get engineName() { return this.mode === 'idb' ? 'IndexedDB (' + DB.name + ')' : 'localStorage (' + LS_KEY + ')'; },
     load,
+    init,
     save,
     /** mutate with a function, then save + re-render */
     edit(mut, kind) {
@@ -270,10 +379,62 @@ const Store = (() => {
     },
     /** re-render only */
     refresh(kind) { emit(kind || 'ui'); },
-    flush() { clearTimeout(saveTimer); persist(); },
+    async flush() {
+      clearTimeout(saveTimer);
+      dirty = false;
+      const ok = await persist();
+      if (mode === 'idb' && DB.available) DB.announce('save', { n: state.templates.length });
+      return ok;
+    },
     subscribe(f) { subs.add(f); return () => subs.delete(f); },
     replaceAll(next) { state = sanitize(next); save(); emit('data'); },
-    resetAll() { KV.del(LS_KEY); state = blankState(); save(); emit('data'); },
+    /** drop every row in every table, then re-seed from scratch */
+    async resetAll() {
+      KV.del(LS_KEY);
+      KV.del(LS_MIRROR);
+      clearTimeout(saveTimer);
+      state = blankState();
+      if (DB.available) {
+        try { await DB.wipeAll(); } catch (e) { /* a DB that will not clear still leaves us consistent in memory */ }
+      }
+      dirty = false;
+      if (mode === 'idb' && DB.available) { try { await DB.writeAll(state); DB.prime(state); } catch (e) { mode = 'kv'; } }
+      else KV.set(LS_KEY, JSON.stringify(state));
+      emit('data');
+    },
+    /**
+     * Pull the tables back into memory. Another window wrote something and
+     * poked us over BroadcastChannel — same database, two desks.
+     */
+    async reload() {
+      if (!DB.available) return false;
+      clearTimeout(saveTimer);
+      try {
+        const rows = await DB.readAll();
+        state = hydrate(rows);
+        dirty = false;
+        DB.prime(state);
+        emit('data');
+        return true;
+      } catch (e) { return false; }
+    },
+    /** full rewrite of every row — used after imports and by Settings → Verify */
+    async rewrite() {
+      if (!DB.available) return persistKV();
+      const r = await DB.writeAll(state);
+      DB.prime(state);
+      DB.announce('save', { n: state.templates.length });
+      return r;
+    },
+    async stats() { return DB.stats(state); },
+    async verify() { return DB.verify(state); },
+    async repair() {
+      const r = DB.available ? await DB.repair(state) : { engine: 'kv', rows: 0, droppedBlobs: 0 };
+      DB.prime(state);
+      emit('data');
+      return r;
+    },
+    diagnostics() { return DB.diagnostics(state); },
     blankState,
     uid,
     nowISO,

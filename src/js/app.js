@@ -721,9 +721,36 @@ function toggleTheme() {
 function togglePaneOpen() { if (view.selected) { view.selected = null; render(); } }
 function updateStorageBadge() {
   const el = document.getElementById('storage-used');
-  if (!el) return;
-  if (!navigator.storage?.estimate) { el.textContent = 'unknown'; return; }
-  navigator.storage.estimate().then((r) => {
-    el.textContent = bytes(r.usage || 0) + ' used' + (r.quota ? ' of ~' + bytes(r.quota) : '');
-  }).catch(() => { el.textContent = 'unknown'; });
+  if (!navigator.storage?.estimate) { if (el) el.textContent = 'unknown'; }
+  else if (el) {
+    navigator.storage.estimate().then((r) => {
+      if (!document.getElementById('storage-used')) return;
+      document.getElementById('storage-used').textContent = bytes(r.usage || 0) + ' used' + (r.quota ? ' of ~' + bytes(r.quota) : '');
+    }).catch(() => { el.textContent = 'unknown'; });
+  }
+
+  /* the database card on the Settings tab */
+  const sum = document.getElementById('db-summary');
+  const tablesEl = document.getElementById('db-tables');
+  const lastEl = document.getElementById('db-last');
+  if (!sum && !tablesEl) return;
+  Promise.resolve(Store.stats()).then((st) => {
+    if (sum && !document.getElementById('db-summary')) return;      // re-rendered meanwhile
+    const t = st.tables || {};
+    const label = { templates: 'templates', phrases: 'phrases', categories: 'categories', files: 'files', cases: 'cases', blobs: 'files stored as bytes', activity: 'recent copies', vars: 'remembered {{placeholders}}', trash: 'in undo', settings: 'settings row', meta: 'meta rows' };
+    const chips = ['templates', 'phrases', 'categories', 'files', 'cases', 'blobs', 'activity']
+      .filter((k) => t[k] != null)
+      .map((k) => `<span class="chip" style="pointer-events:none">${t[k]} ${label[k] || k}</span>`).join('');
+    const engine = st.engine === 'idb'
+      ? `<b>IndexedDB</b> · database “${esc(st.db)}” · schema v${st.dbVersion} (records v${st.stateSchema})`
+      : `<b>localStorage</b> fallback · the browser refused to open a database (${esc(st.error || 'no reason given')})`;
+    const bytesLine = st.usage && st.usage.usage != null
+      ? `<span>·</span><span>${bytes(st.usage.usage)} of ~${bytes(st.usage.quota || 0)} on disk</span>` : '';
+    if (sum) sum.innerHTML = `${engine}${bytesLine}`;
+    if (tablesEl) tablesEl.innerHTML = chips;
+    if (lastEl) {
+      const when = st.lastSavedAt ? ago(st.lastSavedAt) : (Store.isDirty ? 'writing…' : 'nothing to write yet');
+      lastEl.textContent = when + (st.device ? ' · window ' + st.device.slice(4, 8) : '');
+    }
+  }).catch(() => { if (sum) sum.textContent = 'database stats unavailable'; });
 }
