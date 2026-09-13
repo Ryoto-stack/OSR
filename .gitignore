@@ -1,0 +1,4 @@
+node_modules/
+test/_dbg*.mjs
+test/_t*.mjs
+*.log

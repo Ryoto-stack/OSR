@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-density="comfortable">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f7f5">
+<meta name="description" content="OSR Desk — a personal, offline template library and resource shelf for an Online Support Representative.">
+<title>OSR Desk · my support kit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%232f6df6'/%3E%3Cpath d='M17 23h20M17 32h30M17 41h14' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<div id="app" aria-live="polite"></div>
+
+<div id="drop-overlay">
+  <div class="box">Drop files to add them to your shelf<small>Release over a template card to attach it there instead</small></div>
+</div>
+
+<div id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<noscript>
+  <div style="font-family:system-ui;padding:40px;max-width:52ch;margin:0 auto;line-height:1.6">
+    <h1>OSR Desk needs JavaScript</h1>
+    <p>It's a single HTML file with no server behind it — everything you type is stored in this browser. Turn JavaScript on, or open it in a normal browser window instead of an embedded preview.</p>
+  </div>
+</noscript>
+
+<!-- SCRIPTS:START -->
+<script src="src/js/store.js"></script>
+<script src="src/data/seed.js"></script>
+<script src="src/js/ui.js"></script>
+<script src="src/js/app.js"></script>
+<script src="src/js/panels.js"></script>
+<script src="src/js/io.js"></script>
+<!-- SCRIPTS:END -->
+</body>
+</html>
