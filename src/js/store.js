@@ -163,7 +163,8 @@ function blankState() {
       appendSignature: false,
       plainCopy: true,
       fontSize: 14.5,
-      rememberFill: true
+      rememberFill: true,
+      hideChecklist: false
     },
     vars: {},               // remembered quick-fill values  key -> value
     categories: [],
@@ -201,6 +202,7 @@ const Store = (() => {
     out.phrases = out.phrases.filter((p) => p && p.id && p.text);
     out.templates.forEach((t) => {
       t.subject = typeof t.subject === 'string' ? t.subject : '';
+      t.custom = !!t.custom; t.noSig = !!t.noSig;
       t.tags = Array.isArray(t.tags) ? t.tags : [];
       t.fileIds = Array.isArray(t.fileIds) ? t.fileIds : [];
       t.usage = Number(t.usage) || 0;

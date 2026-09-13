@@ -59,8 +59,11 @@ new mail  →  Ctrl+K  →  type 2 words  →  Enter  →  paste  →  tweak one
 * **Copy** puts the email on your clipboard as plain text (no stray formatting in the mail client).
 * **Edit** opens the editor with a live variable bar; `Ctrl+Enter` saves.
 * **Star** anything you use daily → it shows in `Starred`.
-* Right-click a card for duplicate / attach file / export that one / delete. `Delete` always
-  offers **Undo** in the toast.
+* Right-click a card for duplicate / copy subject / attach file / export that one / delete.
+  `Delete` always offers **Undo** in the toast.
+* Per-template **"never append my signature"** box — for the internal-notes ones.
+* Settings → **What I actually use**: your top copied templates with counts and "last used",
+  plus how many you've never touched. That's the pruning list.
 * `{{placeholders}}` are highlighted in the preview panel, with a **Filled preview** so you can
   see what the client will actually read.
 
@@ -72,6 +75,12 @@ new mail  →  Ctrl+K  →  type 2 words  →  Enter  →  paste  →  tweak one
 * Your signature block is appended when you tick it (or turn on *Always append* in Settings).
 * If the browser blocks clipboard access entirely, a fallback dialog shows the text selected —
   `Ctrl+C` still works.
+
+### First-week strip
+A five-box checklist sits on top of the library until you've done it: put your name and
+signature on file, write five templates of your own, star the three you use most, drop your
+docs on the shelf, and put today's open threads on the case board. It hides itself when done
+(and there's a *hide* button if you'd rather just get on with it).
 
 ### `Grab-and-go lines`
 One-liners (empathy openers, boundary sentences, a closing courtesy). Click = copy, no dialog
@@ -166,7 +175,7 @@ src/data/seed.js    the starter library — edit freely, then `npm run build`
 
 ```bash
 npm run build      # re-inlines src/ into OSR-Desk.html + index.html
-npm test           # build, CSS lint, then 133 assertions against the real built file
+npm test           # build, CSS lint, then 142 assertions against the real built file
 npm run test:ui    # just the main flows (copy, fill, search, editor, files, cases, backup…)
 npm run test:flows # drag & drop, paste, undo, storage failure, oversized files, safety
 ```

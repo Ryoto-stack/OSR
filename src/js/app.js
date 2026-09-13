@@ -230,7 +230,7 @@ async function copySubject(t) {
 function composedBody(t) {
   let body = t.body;
   const s = Store.s.settings;
-  if ((s.appendSignature || t.appendSig) && s.signature && !/signature/i.test(t.noSig || '')) {
+  if ((s.appendSignature || t.appendSig) && !t.noSig && s.signature) {
     body = body.replace(/\s*$/, '\n\n') + s.signature.trim() + '\n';
   }
   return body;
@@ -433,7 +433,8 @@ function openEditor(id, prefill = {}) {
     category: t?.category || (view.tab === 'library' && cats.some((c) => c.id === view.cat) ? view.cat : cats[0]?.id || ''),
     tags: (t?.tags || []).join(', '),
     useWhen: t?.useWhen || '',
-    favorite: t?.favorite || false
+    favorite: t?.favorite || false,
+    noSig: t?.noSig || false
   };
   const m = openModal(`
     <div class="modal-head">
@@ -471,6 +472,7 @@ function openEditor(id, prefill = {}) {
       <div class="form-row"><label class="lbl" for="ed-use">When do I use this? (just for me)</label>
         <input id="ed-use" class="txt" value="${esc(draft.useWhen)}" placeholder="e.g. only if they've already tried the reset link twice" style="font-size:13px"></div>
       <div class="checkrow"><input type="checkbox" id="ed-fav" ${draft.favorite ? 'checked' : ''}><label for="ed-fav">Star it (keeps it in my favourites)</label></div>
+      <div class="checkrow"><input type="checkbox" id="ed-nosig" ${draft.noSig ? 'checked' : ''}><label for="ed-nosig">Never append my signature to this one (internal notes, handoff blurbs)</label></div>
       ${t ? `<div class="pane-sec"><h4>${ICON.file} Attached files <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">— drag files onto the card in the library too</span></h4>
         <div id="ed-files" class="files-grid" style="gap:7px">${Q.filesFor(t).map((f) => fileCard(f, { tpl: t.id })).join('') || '<span class="help">None yet — screenshots of the exact error, the form you always attach, that sort of thing.</span>'}</div>
         <div class="help" id="ed-drop" style="border:1.5px dashed var(--line);border-radius:8px;padding:9px;text-align:center">Drop files here, or
@@ -537,7 +539,8 @@ function openEditor(id, prefill = {}) {
       category: m.el.querySelector('#ed-cat').value,
       tags: csv(m.el.querySelector('#ed-tags').value),
       useWhen: m.el.querySelector('#ed-use').value.trim(),
-      favorite: m.el.querySelector('#ed-fav').checked
+      favorite: m.el.querySelector('#ed-fav').checked,
+      noSig: m.el.querySelector('#ed-nosig').checked
     };
     if (!body.trim()) { Bus.toast('Add some body text first — an empty template helps nobody', 'warn'); ta.focus(); return; }
     Store.edit((st) => {
@@ -547,7 +550,7 @@ function openEditor(id, prefill = {}) {
       } else {
         const nid = uid('tpl');
         st.templates.push({
-          id: nid, ...payload, usage: 0, favorite: payload.favorite, pinned: false,
+          id: nid, ...payload, usage: 0, pinned: false, custom: true,
           order: Math.max(0, ...st.templates.map((z) => z.order || 0)) + 1,
           fileIds: [], createdAt: nowISO(), updatedAt: nowISO(), lastUsed: null
         });

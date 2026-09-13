@@ -589,6 +589,48 @@ input.txt:focus, textarea.txt:focus, select.txt:focus { outline: none; border-co
   #print-sheet li { margin-bottom: 3pt; font-size: 10pt; }
   @page { margin: 16mm 14mm; }
 }
+
+/* ---------- first-week checklist ---------- */
+.checklist {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+  padding: 10px 11px 11px; margin-bottom: 12px; box-shadow: var(--shadow-1);
+}
+.checklist.done-strip { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--ink-2); font-size: 12.5px; }
+.checklist.done-strip b { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); }
+.checklist.done-strip span { flex: 1; min-width: 220px; line-height: 1.55; }
+.cl-head { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-3); margin-bottom: 8px; }
+.cl-head b { color: var(--ink); font-size: 12.5px; }
+.cl-bar { flex: 1; height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; min-width: 60px; }
+.cl-bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s ease; }
+.cl-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 6px; }
+.cl-item {
+  display: flex; align-items: center; gap: 7px; padding: 7px 8px; border-radius: 8px;
+  border: 1px solid var(--line-2); background: var(--panel-2); text-align: left; font-size: 12px; color: var(--ink-2); min-width: 0;
+}
+.cl-item:hover { border-color: var(--accent-line); background: var(--accent-soft); color: var(--ink); }
+.cl-item .tick {
+  width: 15px; height: 15px; border-radius: 99px; border: 1.5px solid var(--line); flex: none;
+  display: grid; place-items: center; color: transparent; background: var(--panel);
+}
+.cl-item.on { color: var(--ink-3); text-decoration: none; }
+.cl-item.on .tick { background: var(--ok); border-color: var(--ok); color: #fff; }
+.cl-item.on .ci-label { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-3) 60%, transparent); }
+.ci-label { font-weight: 570; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci-hint { margin-left: auto; font-size: 10.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+@media (max-width: 700px) { .ci-hint { display: none; } }
+
+/* ---------- usage panel ---------- */
+.usage-list { display: flex; flex-direction: column; gap: 3px; }
+.usage-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(40px, 90px) 30px 62px; align-items: center;
+  gap: 8px; padding: 5px 7px; border-radius: 7px; border: 1px solid transparent; font-size: 12px; text-align: left;
+}
+.usage-row:hover { background: var(--panel); border-color: var(--line); }
+.u-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.u-bar { height: 5px; border-radius: 99px; background: var(--line-2); overflow: hidden; }
+.u-bar i { display: block; height: 100%; background: var(--accent); opacity: .8; }
+.u-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+.u-ago { color: var(--ink-3); font-size: 11px; text-align: right; }
 </style>
 </head>
 <body>
@@ -774,7 +816,8 @@ function blankState() {
       appendSignature: false,
       plainCopy: true,
       fontSize: 14.5,
-      rememberFill: true
+      rememberFill: true,
+      hideChecklist: false
     },
     vars: {},               // remembered quick-fill values  key -> value
     categories: [],
@@ -812,6 +855,7 @@ const Store = (() => {
     out.phrases = out.phrases.filter((p) => p && p.id && p.text);
     out.templates.forEach((t) => {
       t.subject = typeof t.subject === 'string' ? t.subject : '';
+      t.custom = !!t.custom; t.noSig = !!t.noSig;
       t.tags = Array.isArray(t.tags) ? t.tags : [];
       t.fileIds = Array.isArray(t.fileIds) ? t.fileIds : [];
       t.usage = Number(t.usage) || 0;
@@ -1807,6 +1851,7 @@ function renderLibrary(list, filtered) {
   </div>
 
   ${recentCopiedStrip()}
+  ${renderChecklist()}
 
   ${list.length === 0 ? emptyLibrary(filtered) : `
     <div class="${s.settings.view === 'list' ? 'list' : 'grid'}">
@@ -1840,6 +1885,40 @@ function emptyLibrary(filtered) {
     <div class="row">
       <button class="btn primary" data-act="new-template">${ICON.plus} New template</button>
       <button class="btn" data-act="import">Import a backup</button>
+    </div>
+  </div>`;
+}
+
+const SETUP = [
+  { key: 'me', label: 'Put your name + signature on file', hint: 'so {{agent_name}} fills itself in', act: 'settings', icon: ICON.gear },
+  { key: 'own', label: 'Write 5 of your own templates', hint: 'the ones only your team sends', act: 'new-template', icon: ICON.plus },
+  { key: 'star', label: 'Star the 3 you use most', hint: 'they jump to the Starred view', act: 'cat:fav', icon: ICON.star },
+  { key: 'files', label: 'Drop the docs you keep re-opening', hint: 'SOPs, price list, escalation contacts', act: 'tab:files', icon: ICON.file },
+  { key: 'cases', label: 'Put today\u2019s open threads on the board', hint: 'who owes you a reply', act: 'tab:cases', icon: ICON.cases }
+];
+
+function renderChecklist() {
+  const st = Store.s;
+  if (st.settings.hideChecklist) return '';
+  const done = {
+    me: !!(st.settings.yourName && (st.settings.signature || st.settings.company)),
+    own: st.templates.filter((t) => t.custom).length >= 5,
+    star: st.templates.filter((t) => t.favorite).length >= 3,
+    files: st.files.length > 0,
+    cases: st.cases.length > 0
+  };
+  const n = Object.values(done).filter(Boolean).length;
+  if (n === 5) return `<div class="checklist done-strip"><b>${ICON.check} Your desk is set up.</b>
+    <span>Five habits in there will save you an hour a day: search before you type, keep placeholders short, star the winners, prune what you never copy, and export weekly.</span>
+    <button class="btn sm ghost" data-act="hide-checklist">hide this</button></div>`;
+  return `<div class="checklist">
+    <div class="cl-head"><b>First week</b><span>${n} of 5 done</span>
+      <div class="cl-bar"><i style="width:${(n / 5) * 100}%"></i></div>
+      <button class="btn sm ghost" data-act="hide-checklist" title="Not now">hide</button></div>
+    <div class="cl-items">
+      ${SETUP.map((item) => `<button class="cl-item ${done[item.key] ? 'on' : ''}" data-act="${item.act}" title="${esc2(item.hint)}">
+        <span class="tick">${done[item.key] ? ICON.check : ''}</span>
+        <span class="ci-label">${esc2(item.label)}</span><span class="ci-hint">${esc2(item.hint)}</span></button>`).join('')}
     </div>
   </div>`;
 }
@@ -2052,6 +2131,12 @@ function renderSettings() {
       <button class="btn sm" data-act="help">${ICON.open} Show me the 30-second tour again</button>
     </div>
 
+    <div class="set-card">
+      <h4>${ICON.bolt} What I actually use</h4>
+      <p class="desc">Honest signal for pruning: if a template hasn't been copied in a month it's noise. Delete it, or move it to the shelf as a note.</p>
+      ${usagePanel()}</div>
+    </div>
+
     <div class="set-card danger-zone">
       <h4 style="color:var(--bad)">Careful</h4>
       <p class="desc">These can't be undone unless you exported first.</p>
@@ -2126,6 +2211,21 @@ function renderPane(t) {
     <button class="btn" data-act="edit" data-id="${t.id}">${ICON.edit}<span>Edit</span></button>
     <span class="hint"><kbd>C</kbd> copy · <kbd>E</kbd> edit</span>
   </div>`;
+}
+
+function usagePanel() {
+  const list = Store.s.templates.filter((t) => t.usage > 0).sort((a, b) => b.usage - a.usage).slice(0, 6);
+  const never = Store.s.templates.filter((t) => !t.usage).length;
+  const week = Store.s.templates.filter((t) => t.lastUsed && Date.now() - new Date(t.lastUsed) < 7 * 864e5).length;
+  return `
+  ${list.length ? `<div class="usage-list">${list.map((t) => {
+    const max = list[0].usage || 1;
+    return `<button class="usage-row" data-act="select" data-id="${t.id}" title="Open ${esc2(t.title)}">
+      <span class="u-name">${esc2(t.title)}</span>
+      <span class="u-bar"><i style="width:${Math.max(6, (t.usage / max) * 100)}%"></i></span>
+      <span class="u-n">${t.usage}×</span><span class="u-ago">${ago(t.lastUsed)}</span></button>`;
+  }).join('')}</div>` : '<div class="help">Nothing copied yet — this fills in as you use the desk.</div>'}
+  <div class="meta-row"><span>${Store.s.templates.length} templates</span><span>·</span><span>${never} never copied</span><span>·</span><span>${week} used this week</span></div>`;
 }
 
 function renderProse(text, plain) {
@@ -2368,7 +2468,7 @@ async function copySubject(t) {
 function composedBody(t) {
   let body = t.body;
   const s = Store.s.settings;
-  if ((s.appendSignature || t.appendSig) && s.signature && !/signature/i.test(t.noSig || '')) {
+  if ((s.appendSignature || t.appendSig) && !t.noSig && s.signature) {
     body = body.replace(/\s*$/, '\n\n') + s.signature.trim() + '\n';
   }
   return body;
@@ -2571,7 +2671,8 @@ function openEditor(id, prefill = {}) {
     category: t?.category || (view.tab === 'library' && cats.some((c) => c.id === view.cat) ? view.cat : cats[0]?.id || ''),
     tags: (t?.tags || []).join(', '),
     useWhen: t?.useWhen || '',
-    favorite: t?.favorite || false
+    favorite: t?.favorite || false,
+    noSig: t?.noSig || false
   };
   const m = openModal(`
     <div class="modal-head">
@@ -2609,6 +2710,7 @@ function openEditor(id, prefill = {}) {
       <div class="form-row"><label class="lbl" for="ed-use">When do I use this? (just for me)</label>
         <input id="ed-use" class="txt" value="${esc(draft.useWhen)}" placeholder="e.g. only if they've already tried the reset link twice" style="font-size:13px"></div>
       <div class="checkrow"><input type="checkbox" id="ed-fav" ${draft.favorite ? 'checked' : ''}><label for="ed-fav">Star it (keeps it in my favourites)</label></div>
+      <div class="checkrow"><input type="checkbox" id="ed-nosig" ${draft.noSig ? 'checked' : ''}><label for="ed-nosig">Never append my signature to this one (internal notes, handoff blurbs)</label></div>
       ${t ? `<div class="pane-sec"><h4>${ICON.file} Attached files <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">— drag files onto the card in the library too</span></h4>
         <div id="ed-files" class="files-grid" style="gap:7px">${Q.filesFor(t).map((f) => fileCard(f, { tpl: t.id })).join('') || '<span class="help">None yet — screenshots of the exact error, the form you always attach, that sort of thing.</span>'}</div>
         <div class="help" id="ed-drop" style="border:1.5px dashed var(--line);border-radius:8px;padding:9px;text-align:center">Drop files here, or
@@ -2675,7 +2777,8 @@ function openEditor(id, prefill = {}) {
       category: m.el.querySelector('#ed-cat').value,
       tags: csv(m.el.querySelector('#ed-tags').value),
       useWhen: m.el.querySelector('#ed-use').value.trim(),
-      favorite: m.el.querySelector('#ed-fav').checked
+      favorite: m.el.querySelector('#ed-fav').checked,
+      noSig: m.el.querySelector('#ed-nosig').checked
     };
     if (!body.trim()) { Bus.toast('Add some body text first — an empty template helps nobody', 'warn'); ta.focus(); return; }
     Store.edit((st) => {
@@ -2685,7 +2788,7 @@ function openEditor(id, prefill = {}) {
       } else {
         const nid = uid('tpl');
         st.templates.push({
-          id: nid, ...payload, usage: 0, favorite: payload.favorite, pinned: false,
+          id: nid, ...payload, usage: 0, pinned: false, custom: true,
           order: Math.max(0, ...st.templates.map((z) => z.order || 0)) + 1,
           fileIds: [], createdAt: nowISO(), updatedAt: nowISO(), lastUsed: null
         });
@@ -3483,6 +3586,7 @@ function handleAct(act, id, el, e) {
     case 'seg-density': Store.edit((st) => { st.settings.density = el.dataset.val; }, 'ui'); applyTheme(); render(); break;
     case 'fill-var': editVar(el.dataset.key); break;
     case 'close-pane': view.selected = null; render(); break;
+    case 'hide-checklist': Store.edit((st) => { st.settings.hideChecklist = true; }, 'data'); Bus.toast('Checklist hidden — Settings → “Show me the 30-second tour” brings the guidance back', '', 3000); break;
     case 'copy-subject': {
       const t = Q.template(id);
       if (!t) break;
@@ -3970,6 +4074,7 @@ function openHelp(first = false) {
           <p class="desc"><b>Live cases</b> is a scratchpad for the threads you're holding. Hit <i>Reply</i> on a row and pick a template — the client name and ticket number go in for you.</p></div>
       </div>
       <div class="help" style="font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px">
+        <b>The First-week strip</b> at the top of the library ticks itself off as you set yourself up — name &amp; signature, five of your own templates, three stars, your docs on the shelf, today's threads on the board.<br><br>
         <b>Two habits worth having:</b><br>
         · Settings → <b>Export with files</b> once a week. The file lives in a folder that syncs, so a wiped browser costs you nothing.<br>
         · Delete every template you don't use within a fortnight. A 12-template library you actually open beats a 200-template one you avoid.

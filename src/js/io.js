@@ -101,6 +101,7 @@ function handleAct(act, id, el, e) {
     case 'seg-density': Store.edit((st) => { st.settings.density = el.dataset.val; }, 'ui'); applyTheme(); render(); break;
     case 'fill-var': editVar(el.dataset.key); break;
     case 'close-pane': view.selected = null; render(); break;
+    case 'hide-checklist': Store.edit((st) => { st.settings.hideChecklist = true; }, 'data'); Bus.toast('Checklist hidden — Settings → “Show me the 30-second tour” brings the guidance back', '', 3000); break;
     case 'copy-subject': {
       const t = Q.template(id);
       if (!t) break;
@@ -588,6 +589,7 @@ function openHelp(first = false) {
           <p class="desc"><b>Live cases</b> is a scratchpad for the threads you're holding. Hit <i>Reply</i> on a row and pick a template — the client name and ticket number go in for you.</p></div>
       </div>
       <div class="help" style="font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px">
+        <b>The First-week strip</b> at the top of the library ticks itself off as you set yourself up — name &amp; signature, five of your own templates, three stars, your docs on the shelf, today's threads on the board.<br><br>
         <b>Two habits worth having:</b><br>
         · Settings → <b>Export with files</b> once a week. The file lives in a folder that syncs, so a wiped browser costs you nothing.<br>
         · Delete every template you don't use within a fortnight. A 12-template library you actually open beats a 200-template one you avoid.

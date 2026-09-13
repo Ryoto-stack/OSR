@@ -413,8 +413,41 @@ if (q('#fill-subj-copy')) {
 }
 await clearModals();
 
-/* 24. no runtime errors */
-console.log('\n[24] error sweep');
+/* 24. first-week checklist, noSig, usage panel */
+console.log('\n[24] setup aids');
+await clearModals();
+w.eval(`view.tab='library'; view.cat='all'; view.q=''; view.tags=[]; Store.s.settings.hideChecklist=false; render();`);
+await wait(60);
+check('first-week checklist shows on the library', !!q('.checklist') && qa('.cl-item').length === 5);
+w.eval(`Store.s.settings.yourName=''; Store.s.settings.signature=''; render();`);
+await wait(60);
+const doneBefore = qa('.cl-item.on').length;
+check('clearing the name unticks the first box', !qa('.cl-item')[0].classList.contains('on'), 'done count ' + doneBefore);
+w.eval(`Store.s.settings.yourName='Ry Tan'; Store.s.settings.company='Northwind'; Store.s.settings.signature='Ry --'; render();`);
+await wait(60);
+check('setting name+signature ticks it again', qa('.cl-item')[0].classList.contains('on') && qa('.cl-item.on').length === doneBefore + 1, 'done ' + qa('.cl-item.on').length);
+await click(q('[data-act="hide-checklist"]'));
+check('it can be dismissed', !q('.checklist') && (await readState()).settings.hideChecklist === true);
+w.eval(`Store.s.settings.hideChecklist=false; Store.s.settings.appendSignature=true; render();`);
+const forSig = (await readState()).templates[0].id;
+await w.eval(`openEditor("${forSig}")`);
+await wait(60);
+check('editor offers a per-template signature opt-out', !!q('#ed-nosig'));
+q('#ed-nosig').checked = true; q('#ed-nosig').dispatchEvent(new w.Event('change', { bubbles: true }));
+await click(q('#ed-save'));
+check('opt-out persisted', (await readState()).templates.find((t) => t.id === forSig).noSig === true);
+clip.calls = 0; clip.text = '';
+await w.eval(`copyTemplate("${forSig}", { noFill: true })`);
+await wait(120);
+check('that template copies without the signature', clip.calls === 1 && !clip.text.includes('Ry --'), JSON.stringify(clip.text.slice(-40)));
+await w.eval(`view.tab='settings'; render();`);
+await wait(60);
+check('usage panel lists what I actually copy', !!q('.usage-row') && /\d+×/.test(q('.usage-row').textContent) && q('.usage-row').textContent.trim().length > 4, JSON.stringify(q('.usage-list')?.textContent.replace(/\s+/g, ' ').slice(0, 70)));
+check('usage panel counts never-used templates', /never copied/.test(q('.set-card')?.parentElement.textContent || ''));
+await w.eval(`Store.s.settings.appendSignature=false; render();`);
+
+/* 25. no runtime errors */
+console.log('\n[25] error sweep');
 check('no uncaught errors during the whole run', errors.length === 0, errors.slice(0, 4).join(' | '));
 
 console.log(`\n────────  ${pass} passed, ${fail} failed  ────────\n`);

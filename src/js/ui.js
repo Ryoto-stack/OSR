@@ -232,6 +232,7 @@ function renderLibrary(list, filtered) {
   </div>
 
   ${recentCopiedStrip()}
+  ${renderChecklist()}
 
   ${list.length === 0 ? emptyLibrary(filtered) : `
     <div class="${s.settings.view === 'list' ? 'list' : 'grid'}">
@@ -265,6 +266,40 @@ function emptyLibrary(filtered) {
     <div class="row">
       <button class="btn primary" data-act="new-template">${ICON.plus} New template</button>
       <button class="btn" data-act="import">Import a backup</button>
+    </div>
+  </div>`;
+}
+
+const SETUP = [
+  { key: 'me', label: 'Put your name + signature on file', hint: 'so {{agent_name}} fills itself in', act: 'settings', icon: ICON.gear },
+  { key: 'own', label: 'Write 5 of your own templates', hint: 'the ones only your team sends', act: 'new-template', icon: ICON.plus },
+  { key: 'star', label: 'Star the 3 you use most', hint: 'they jump to the Starred view', act: 'cat:fav', icon: ICON.star },
+  { key: 'files', label: 'Drop the docs you keep re-opening', hint: 'SOPs, price list, escalation contacts', act: 'tab:files', icon: ICON.file },
+  { key: 'cases', label: 'Put today\u2019s open threads on the board', hint: 'who owes you a reply', act: 'tab:cases', icon: ICON.cases }
+];
+
+function renderChecklist() {
+  const st = Store.s;
+  if (st.settings.hideChecklist) return '';
+  const done = {
+    me: !!(st.settings.yourName && (st.settings.signature || st.settings.company)),
+    own: st.templates.filter((t) => t.custom).length >= 5,
+    star: st.templates.filter((t) => t.favorite).length >= 3,
+    files: st.files.length > 0,
+    cases: st.cases.length > 0
+  };
+  const n = Object.values(done).filter(Boolean).length;
+  if (n === 5) return `<div class="checklist done-strip"><b>${ICON.check} Your desk is set up.</b>
+    <span>Five habits in there will save you an hour a day: search before you type, keep placeholders short, star the winners, prune what you never copy, and export weekly.</span>
+    <button class="btn sm ghost" data-act="hide-checklist">hide this</button></div>`;
+  return `<div class="checklist">
+    <div class="cl-head"><b>First week</b><span>${n} of 5 done</span>
+      <div class="cl-bar"><i style="width:${(n / 5) * 100}%"></i></div>
+      <button class="btn sm ghost" data-act="hide-checklist" title="Not now">hide</button></div>
+    <div class="cl-items">
+      ${SETUP.map((item) => `<button class="cl-item ${done[item.key] ? 'on' : ''}" data-act="${item.act}" title="${esc2(item.hint)}">
+        <span class="tick">${done[item.key] ? ICON.check : ''}</span>
+        <span class="ci-label">${esc2(item.label)}</span><span class="ci-hint">${esc2(item.hint)}</span></button>`).join('')}
     </div>
   </div>`;
 }
@@ -477,6 +512,12 @@ function renderSettings() {
       <button class="btn sm" data-act="help">${ICON.open} Show me the 30-second tour again</button>
     </div>
 
+    <div class="set-card">
+      <h4>${ICON.bolt} What I actually use</h4>
+      <p class="desc">Honest signal for pruning: if a template hasn't been copied in a month it's noise. Delete it, or move it to the shelf as a note.</p>
+      ${usagePanel()}</div>
+    </div>
+
     <div class="set-card danger-zone">
       <h4 style="color:var(--bad)">Careful</h4>
       <p class="desc">These can't be undone unless you exported first.</p>
@@ -551,6 +592,21 @@ function renderPane(t) {
     <button class="btn" data-act="edit" data-id="${t.id}">${ICON.edit}<span>Edit</span></button>
     <span class="hint"><kbd>C</kbd> copy · <kbd>E</kbd> edit</span>
   </div>`;
+}
+
+function usagePanel() {
+  const list = Store.s.templates.filter((t) => t.usage > 0).sort((a, b) => b.usage - a.usage).slice(0, 6);
+  const never = Store.s.templates.filter((t) => !t.usage).length;
+  const week = Store.s.templates.filter((t) => t.lastUsed && Date.now() - new Date(t.lastUsed) < 7 * 864e5).length;
+  return `
+  ${list.length ? `<div class="usage-list">${list.map((t) => {
+    const max = list[0].usage || 1;
+    return `<button class="usage-row" data-act="select" data-id="${t.id}" title="Open ${esc2(t.title)}">
+      <span class="u-name">${esc2(t.title)}</span>
+      <span class="u-bar"><i style="width:${Math.max(6, (t.usage / max) * 100)}%"></i></span>
+      <span class="u-n">${t.usage}×</span><span class="u-ago">${ago(t.lastUsed)}</span></button>`;
+  }).join('')}</div>` : '<div class="help">Nothing copied yet — this fills in as you use the desk.</div>'}
+  <div class="meta-row"><span>${Store.s.templates.length} templates</span><span>·</span><span>${never} never copied</span><span>·</span><span>${week} used this week</span></div>`;
 }
 
 function renderProse(text, plain) {
