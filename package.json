@@ -2,17 +2,25 @@
   "name": "osr-desk",
   "version": "1.0.0",
   "private": true,
-  "description": "OSR Desk \u2014 a personal, offline template library, drag-and-drop resource shelf and case scratchpad for an Online Support Representative. Single HTML file, no dependencies, no network.",
+  "description": "OSR Desk — a personal, offline template library, drag-and-drop resource shelf and case scratchpad for an Online Support Representative. Single HTML file, no dependencies, no network.",
   "scripts": {
     "build": "node build.js",
     "start": "python3 -m http.server 8600",
-    "test": "node build.js && node test/css-lint.mjs && node test/smoke.mjs && node test/flows.mjs",
+    "test": "node build.js && node test/css-lint.mjs && node test/smoke.mjs && node test/flows.mjs && node test/db.mjs && node test/sync.mjs && node test/dbtools.mjs",
     "test:css": "node test/css-lint.mjs",
     "test:ui": "node test/smoke.mjs",
-    "test:flows": "node test/flows.mjs"
+    "test:flows": "node test/flows.mjs",
+    "test:db": "node build.js && node test/db.mjs",
+    "test:sync": "node build.js && node test/sync.mjs",
+    "test:tools": "node test/dbtools.mjs",
+    "db:inspect": "node tools/osr-db.mjs inspect",
+    "db:sqlite": "node tools/osr-db.mjs sqlite",
+    "db:query": "node tools/osr-db.mjs query",
+    "db:roundtrip": "node tools/osr-db.mjs roundtrip"
   },
   "devDependencies": {
     "css-tree": "^3.2.1",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.0.0",
     "playwright": "^1.55.0"
   },

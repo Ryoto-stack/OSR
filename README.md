@@ -1,11 +1,14 @@
 # OSR · Online Support Desk
 
 A personal, offline workspace for an Online Support Representative. It is **not** a company
-tool, it talks to **no server**, and it needs **no account**. One HTML file that holds:
+tool, it talks to **no server** and needs **no account** — unless you switch on the opt-in
+mirror yourself ([docs/SYNC.md](docs/SYNC.md)), which never becomes a requirement. One HTML
+file that holds:
 
 1. your reply **template library** (every card has a **Copy** and an **Edit** button),
 2. a **grab-and-go phrase bank** for single sentences,
 3. a **drag-and-drop resource shelf** (SOPs, screenshots, price lists, saved links),
+   kept in a **real local database** (IndexedDB) rather than one browser string,
 4. a tiny **live-cases** scratchpad so you know who's waiting on whom,
 5. and one-click **backup / restore** of the whole thing.
 
@@ -24,9 +27,13 @@ waiting on a reply.
 Everything you add is stored by the browser for that file — close the tab, reopen tomorrow,
 it's all still there. Works on Windows, macOS and Linux, and offline on a plane.
 
-> Chrome/Edge/Firefox all fine. If you find files don't persist when opened from `file://`
-> (some hardened browser configs block storage there), use Option B — it's the same file,
-> just served over `http://` where every storage API is guaranteed.
+> Chrome/Edge/Firefox all fine. **One caveat now that the workspace lives in a database:**
+> browsers treat `file://` pages as an opaque origin, and on some (Firefox especially, and any
+> hardened/enterprise profile) `file://` IndexedDB is either blocked or scoped per-file — which
+> would leave you on the small `localStorage` fallback. If you keep more than a handful of
+> screenshots on the shelf, use Option B: it's the same file served over `http://localhost:8600`,
+> where the database is per-origin, guaranteed, and shows up under DevTools → Application →
+> IndexedDB. Settings → *Where your data lives* always tells you which of the two you are on.
 
 **Option B — one command, a real "app" URL**
 
@@ -146,15 +153,47 @@ are the ones the app and the starter library know about:
 
 ## Your data, and not losing it
 
-* Text lives in `localStorage` for that origin; file blobs live in **IndexedDB**. Nothing is
-  uploaded, nothing is synced, nothing is logged. Autosave is debounced ~250 ms and flushed on
-  tab close (the rail says *Saving…* / *Saved on this PC*).
+It's a database now — [docs/DATABASE.md](docs/DATABASE.md) is the schema, the failure modes and
+the console API. The short version:
+
+* One **IndexedDB** per origin (`osr-desk`), split into tables: `templates`, `phrases`,
+  `categories`, `cases`, `files`, `blobs` (the bytes), `vars`, `settings`, `activity`, `trash`,
+  `meta`. The rail says *Saved to the local database*.
+* A change writes **only the rows that changed** — editing one template is one `put`, not a
+  re-serialisation of your whole library. That's what fixed the old ceiling: `localStorage`
+  gives ~5 MB to one value, so a big pasted screenshot used to be able to stop saving entirely.
+* Nothing is uploaded, nothing is synced, nothing is logged. Autosave is debounced ~260 ms and
+  flushed on tab close *and* on tab hide (the latter is what mobile and Safari actually do).
+* **Optional, off by default:** Settings → *Sync* will mirror the **text** rows (templates,
+  phrases, categories, cases, remembered variables, settings) into one table in a Postgres you
+  own — one row per record, diffed pushes, tombstones for deletes. It makes zero requests until
+  you type a URL and sign in, it never blocks a save, and **the file shelf and its bytes never
+  leave the machine**. Turning it off again is one button. See [docs/SYNC.md](docs/SYNC.md).
+* **No database? No problem.** If `indexedDB` is missing, blocked, locked by another window, or
+  refuses a write, the desk keeps working on the old `localStorage` blob and says so out loud —
+  it never quietly drops edits.
+* **Migration is automatic and reversible.** On first run your existing `localStorage` workspace
+  is copied into the tables and the pre-migration blob is left where it was as a rollback copy,
+  until you press *Delete the old copy* in Settings. The old blob-only file vault
+  (`osr-desk-files`) is absorbed too, so screenshots you dropped before this build survive.
+* Two windows on the same origin share the one database and tell each other when it changed
+  (via `BroadcastChannel`), instead of overwriting each other.
+* **Inspect it** with DevTools, or from the console: `await OSRDB.stats()`,
+  `await OSRDB.dump('templates')`, `await OSRDB.verify()`,
+  `await OSRDB.sql("SELECT title, usage FROM templates ORDER BY usage DESC LIMIT 10")`.
+* **Turn a backup into SQL**: `npm run db:sqlite -- osr-desk-backup.json osr.db` builds a real
+  SQLite file (plus `library`, `most_copied`, `never_copied`, `open_cases`, `orphan_files` views)
+  you can open in `sqlite3`/Datasette/DBeaver. `npm run db:inspect -- backup.json` validates one.
 * **One habit:** Settings → **Export with files** once a week into a synced folder. Re-import by
   dropping that JSON on the window. A wiped browser profile otherwise costs you the library.
 * Export also gives you **Markdown** (paste into any notes app) and a **Print cheat sheet**
   (one tidy PDF per category — nice for the first month, taped inside the monitor bezel).
 * **Import** also accepts **Notion / Google Sheets CSV exports** with `Name`, `Category`, `Tags`
   and `Body` columns — it will make categories for you.
+* Settings → *Where your data lives* → **Verify database** answers "is my stuff actually saved?":
+  row counts vs memory, files whose bytes went missing, orphaned blobs, dangling attachments —
+  and **Rewrite every row** fixes them. **Copy diagnostics** puts the one JSON blob you should
+  paste into a bug report on your clipboard.
 
 ---
 
@@ -165,7 +204,13 @@ The real source is `src/` — plain HTML/CSS/vanilla JS, no framework, no build 
 ```
 src/index.html      shell
 src/styles.css      all the visual language (CSS custom properties up top)
-src/js/store.js     state, localStorage + IndexedDB vault, placeholder engine
+src/js/db.js        THE DATABASE: tables, indexes, migration, diff-writes, verify/repair, OSRDB
+src/js/sync.js      the optional mirror — the only file that can reach the network; off until configured
+supabase/schema.sql the entire backend for that mirror: one table, one RLS policy, one trigger
+src/js/store.js     in-memory workspace on top of it, placeholder engine, localStorage fallback
+tools/osr-db.mjs    offline CLI: validate a backup, build SQLite from it, query it, CSV it
+docs/DATABASE.md    schema, failure modes, console API, "what to send when it's broken"
+docs/SYNC.md        how the optional mirror works, what it never sends, how to remove it
 src/js/ui.js        rendering only (data-act attributes drive everything)
 src/js/app.js       render loop, clipboard, fill dialog, editor, keyboard
 src/js/panels.js    shelf, drag & drop, paste, cases, phrase editing
@@ -175,9 +220,13 @@ src/data/seed.js    the starter library — edit freely, then `npm run build`
 
 ```bash
 npm run build      # re-inlines src/ into OSR-Desk.html + index.html
-npm test           # build, CSS lint, then 142 assertions against the real built file
+npm test           # build, CSS lint, then 427 assertions against the real built file
 npm run test:ui    # just the main flows (copy, fill, search, editor, files, cases, backup…)
 npm run test:flows # drag & drop, paste, undo, storage failure, oversized files, safety
+npm run test:db    # the database itself: rows, migration, fallbacks, blobs, verify/repair
+npm run test:sync  # the mirror, against a fake Supabase: diff, tombstones, conflicts, outages
+npm run test:tools # the offline CLI: inspect, sqlite, query, csv, round-trip
+npm run db:inspect -- path/to/backup.json    # validate an export (no deps, Node 22.5+)
 ```
 
 The tests boot the actual `OSR-Desk.html` inside jsdom and click things: seeding, the fill
@@ -186,10 +235,21 @@ the command palette, keyboard-only navigation, phrase copying, file ingest and a
 the case board, settings, export/import/merge, CSV import, Markdown export, print sheet,
 category CRUD, `Ctrl+B`, a hostile browser with storage disabled, 50 MB-limit files, and
 markup-injection attempts on titles/bodies/links. The CSS is linted for balance and for
-classes used in JS that were never styled.
+classes used in JS that were never styled. **427 assertions in total** (93 UI flows · 49 deeper
+flows · 143 database · 88 sync · 54 CLI).
 
-Clearing your own data: `localStorage.removeItem('osr.desk.state.v3')` in DevTools, or
-Settings → **Wipe everything** (it re-seeds the starter library so you're never at a blank page).
+The database suite is the interesting one: it boots the built file against a real IndexedDB
+implementation and asserts on actual rows — including "the browser refused the write, did the
+edit survive?" and "did the pre-database workspace migrate without being thrown away?".
+`node_modules` is dev-only (`fake-indexeddb` for the shim); the shipped file has no
+dependencies. `test/sync.mjs` runs the whole mirror against a throwaway in-process stand-in for
+Supabase — sign-in failure, an RLS refusal, a dead socket, a revoked token — so nothing in
+`npm test` ever touches a real server or needs an account.
+
+Clearing your own data: Settings → **Wipe everything** drops every table (blobs included) and
+re-seeds the starter library so you're never at a blank page. From DevTools, `await OSRDB.wipe()`
+does the same without the confirmations; `localStorage.clear()` alone is *not* enough any more,
+since the workspace no longer lives there.
 
 ---
 
@@ -213,6 +273,8 @@ lives in a pinned second window, `Ctrl+K`, copy, back.
 
 ## Roadmap ideas (not built, on purpose)
 
+End-to-end encryption for the optional mirror · file-shelf bytes over sync (deliberately not
+done — see `docs/SYNC.md`) ·
 Auto-timestamped reply SLA countdowns · per-client variable memory (not per-day) · a "was this
 resolved?" follow-up generator · folder-of-folders for multi-product desks · Web Extension to
 copy templates into any web mail client.

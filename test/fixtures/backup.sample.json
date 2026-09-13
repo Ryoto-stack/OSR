@@ -1,0 +1,134 @@
+{
+  "app": "osr-desk",
+  "version": 3,
+  "exportedAt": "2026-09-01T02:11:00.000Z",
+  "installedAt": "2026-01-04T01:00:00.000Z",
+  "onboarded": true,
+  "settings": {
+    "theme": "dark",
+    "accent": "#0f9d8a",
+    "yourName": "Ry Tan",
+    "yourRole": "Online Support Representative",
+    "company": "Northwind",
+    "signature": "--\nRy Tan · Northwind Support",
+    "appendSignature": true,
+    "plainCopy": true,
+    "rememberFill": true,
+    "fontSize": 14.5,
+    "sort": "usage",
+    "view": "grid",
+    "density": "comfortable",
+    "hideChecklist": true
+  },
+  "categories": [
+    { "id": "cat_bill", "name": "Billing", "color": "#c1362f", "order": 0 },
+    { "id": "cat_tech", "name": "Troubleshooting", "color": "#2f6df6", "order": 1 },
+    { "id": "cat_acc", "name": "Account & login", "color": "#0f9d8a", "order": 2 }
+  ],
+  "templates": [
+    {
+      "id": "tpl_refund", "title": "Refund approved", "subject": "Your refund is on its way",
+      "body": "Hi {{client_name}},\n\nGood news — refund {{ticket_id}} approved today for {{amount}}.\n\n{{agent_name}}",
+      "category": "cat_bill", "tags": ["refund", "money"], "usage": 41, "favorite": true,
+      "custom": true, "noSig": false, "order": 0,
+      "createdAt": "2026-01-05T09:00:00.000Z", "updatedAt": "2026-08-28T03:10:00.000Z",
+      "fileIds": ["file_policy"]
+    },
+    {
+      "id": "tpl_reset", "title": "Password reset steps", "subject": "Resetting your password",
+      "body": "Hi {{client_name}},\n\n1. Open the login page and choose \"Forgot password\".\n2. Check {{email}} for the link (it expires in 30 minutes).\n3. If nothing arrives, tell me and I will trigger it from our side.\n\n{{agent_name}}",
+      "category": "cat_acc", "tags": ["login", "steps"], "usage": 17, "favorite": true,
+      "custom": true, "noSig": false, "order": 1,
+      "createdAt": "2026-01-11T02:00:00.000Z", "updatedAt": "2026-08-12T06:40:00.000Z",
+      "fileIds": []
+    },
+    {
+      "id": "tpl_escalate", "title": "Escalation to level 2", "subject": "Escalated for you",
+      "body": "Hi {{client_name}},\n\nI've passed {{ticket_id}} to our {{team}} team with everything you sent me. They reply within {{sla}}.\n\n{{agent_name}}",
+      "category": "cat_tech", "tags": ["escalation"], "usage": 6, "favorite": false,
+      "custom": true, "noSig": true, "order": 2,
+      "createdAt": "2026-02-01T04:00:00.000Z", "updatedAt": "2026-07-02T09:15:00.000Z",
+      "fileIds": ["file_escalation"]
+    },
+    {
+      "id": "tpl_chase", "title": "Chase-up after 3 days of silence", "subject": "Still there?",
+      "body": "Hi {{client_name}}, just checking whether my last reply answered it — if I don't hear back in {{days}} days I'll close {{ticket_id}}.\n\n{{agent_name}}",
+      "category": "cat_tech", "tags": ["closure", "no-reply"], "usage": 0, "favorite": false,
+      "custom": true, "noSig": false, "order": 3,
+      "createdAt": "2026-02-14T01:30:00.000Z", "updatedAt": "2026-02-14T01:30:00.000Z",
+      "fileIds": []
+    }
+  ],
+  "phrases": [
+    { "id": "ph_sorry", "text": "That's frustrating, and I'm sorry you're dealing with it.", "group": "empathy", "usage": 120, "favorite": true },
+    { "id": "ph_wait", "text": "Give me one moment to pull that up.", "group": "holding", "usage": 88, "favorite": false },
+    { "id": "ph_close", "text": "Anything else I can sort out for you today?", "group": "closing", "usage": 64, "favorite": true }
+  ],
+  "files": [
+    {
+      "id": "file_policy", "name": "refund-policy.txt", "kind": "file", "mime": "text/plain",
+      "size": 61, "at": "2026-03-01T00:00:00.000Z", "note": "what I can approve without asking", "stored": "idb",
+      "snippet": "REFUND POLICY\n=============\nUnder 50 USD: approve.\nOver: ask lead."
+    },
+    {
+      "id": "file_escalation", "name": "escalation-form.pdf", "kind": "file", "mime": "application/pdf",
+      "size": 812, "at": "2026-03-06T00:00:00.000Z", "note": "the form I always send", "stored": "idb"
+    },
+    {
+      "id": "file_prices", "name": "Price list 2026 (on the shared drive)", "kind": "shortcut", "mime": "",
+      "size": 4400000, "at": "2026-04-02T00:00:00.000Z", "note": "too big for the desk, kept as a shortcut", "url": null
+    },
+    {
+      "id": "file_status", "name": "status page", "kind": "link", "url": "https://status.example.test",
+      "size": 0, "at": "2026-04-20T00:00:00.000Z", "note": ""
+    }
+  ],
+  "fileData": {
+    "file_policy": { "name": "refund-policy.txt", "mime": "text/plain", "data": "REFUND POLICY" },
+    "file_escalation": { "name": "escalation-form.pdf", "mime": "application/pdf", "data": "JVBERi0xLjQK" }
+  },
+  "vars": {
+    "client_name": "Maya",
+    "ticket_id": "T-4001",
+    "email": "maya@example.test",
+    "amount": "39.00 USD",
+    "team": "Billing disputes",
+    "sla": "one business day",
+    "days": "3"
+  },
+  "cases": [
+    {
+      "id": "case_1", "client": "Maya", "contact": "maya@example.test", "ticket": "T-4001",
+      "subject": "double charged on the September invoice", "status": "awaiting", "priority": "high",
+      "owner": "Ry Tan", "promised": "refund within 2 business days", "due": "2026-09-02",
+      "updatedAt": "2026-08-31T05:00:00.000Z",
+      "history": [
+        { "at": "2026-08-31T05:00:00.000Z", "text": "→ awaiting client" },
+        { "at": "2026-08-30T02:00:00.000Z", "text": "escalation approved by lead" },
+        { "at": "2026-08-29T01:00:00.000Z", "text": "opened from mail thread" }
+      ],
+      "fileIds": ["file_policy"]
+    },
+    {
+      "id": "case_2", "client": "Devon", "contact": "devon@example.test", "ticket": "T-4009",
+      "subject": "login loop after reset", "status": "progress", "priority": "med",
+      "owner": "Ry Tan", "promised": "steps today", "due": "2026-09-01",
+      "updatedAt": "2026-08-31T07:30:00.000Z",
+      "history": [{ "at": "2026-08-31T07:30:00.000Z", "text": "→ in progress" }],
+      "fileIds": []
+    },
+    {
+      "id": "case_3", "client": "Priya", "contact": "priya@example.test", "ticket": "T-3990",
+      "subject": "invoice PDF missing VAT line", "status": "resolved", "priority": "low",
+      "owner": "Ry Tan", "promised": "reissued invoice", "due": "2026-08-25",
+      "updatedAt": "2026-08-25T09:00:00.000Z",
+      "history": [{ "at": "2026-08-25T09:00:00.000Z", "text": "→ resolved" }],
+      "fileIds": []
+    }
+  ],
+  "activity": [
+    { "id": "act_1", "at": "2026-08-31T05:01:00.000Z", "kind": "copy", "ref": "tpl_refund" },
+    { "id": "act_2", "at": "2026-08-31T07:31:00.000Z", "kind": "copy", "ref": "tpl_reset" }
+  ],
+  "trash": []
+}

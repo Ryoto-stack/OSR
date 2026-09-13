@@ -125,9 +125,50 @@ function renderRail() {
           <span class="dot" style="background:var(--ok)"></span>
           <span class="label">${esc2(s.settings.yourName)}${s.settings.company ? ' · ' + esc2(s.settings.company) : ''}</span>
         </div>` : `<button class="rail-item" data-act="settings"><span class="dot" style="background:var(--warn)"></span><span class="label">Add your name &amp; signature</span></button>`}
-      <div class="save-state ${Store.isDirty ? 'dirty' : ''}" id="save-state"><i></i><span>${KV.available ? (Store.isDirty ? 'Saving…' : 'Saved on this PC') : 'Not persisting!'}</span></div>
+      <div class="save-state ${Store.isDirty ? 'dirty' : ''}" id="save-state" title="${Store.mode === 'idb' ? 'IndexedDB · ' + DB.name : 'local storage'}"><i></i><span>${Store.isDirty ? 'Saving…' : (Store.mode === 'idb' ? 'Saved to the local database' : (KV.available ? 'Saved on this PC' : 'Not persisting!'))}</span></div>
     </div>
   </nav>`;
+}
+
+/* ---------- the optional mirror (see src/js/sync.js) ---------- */
+function syncCard() {
+  const st = (typeof Sync !== 'undefined') ? Sync.status(Store.s) : { configured: false, signedIn: false };
+  const cfg = (typeof Sync !== 'undefined') ? (Sync.config() || {}) : {};
+  const dot = !st.configured ? 'var(--line)' : (st.signedIn ? (st.error ? 'var(--warn)' : 'var(--ok)') : 'var(--warn)');
+  const state = !st.configured ? 'Off — nothing leaves this machine'
+    : !st.signedIn ? 'Configured, not signed in'
+    : st.busy ? (st.busy === 'push' ? 'Pushing…' : 'Pulling…')
+    : st.error ? 'Problem: ' + st.error
+    : st.pending ? st.pending + ' row' + (st.pending === 1 ? '' : 's') + ' waiting to go up'
+    : 'Up to date';
+  return `<div class="set-card">
+      <h4><span class="dot" style="background:${dot};display:inline-block;margin-right:6px"></span>${ICON.arrow} Sync to your own database <span class="help" style="font-weight:400">(optional)</span></h4>
+      <p class="desc">Mirrors the <b>text</b> of this desk — templates, phrases, categories, cases, remembered placeholders and settings — into a Postgres you own, so a second machine can pull it. Your <b>file shelf is never sent</b>, the local database stays the working copy, and with sync off this file behaves exactly as it always did.</p>
+      ${!st.configured ? `<div class="form-row"><label class="lbl" for="sync-url">Project URL</label>
+        <input class="txt" id="sync-url" data-sync-field="url" value="${esc2(cfg.url || '')}" placeholder="https://your-project.supabase.co" spellcheck="false" style="font-size:12.5px"></div>
+      <div class="form-row"><label class="lbl" for="sync-key">Publishable key</label>
+        <input class="txt" id="sync-key" data-sync-field="key" value="" placeholder="sb_publishable_…" spellcheck="false" style="font-size:12.5px"></div>
+      <div class="help">The <b>publishable</b> (anon) key only. Never paste the <code>service_role</code> secret in here — it bypasses the row-level security that keeps other people out of your rows.</div>
+      <div class="row" style="display:flex;gap:7px;margin-top:8px"><button class="btn primary" data-act="sync-save">Save &amp; connect</button></div>` : ''}
+      ${st.configured && !st.signedIn ? `<div class="form-row"><label class="lbl" for="sync-email">Login email</label>
+        <input class="txt" id="sync-email" value="${esc2(cfg.email || '')}" placeholder="you@example.com" spellcheck="false" autocomplete="username" style="font-size:12.5px"></div>
+      <div class="form-row"><label class="lbl" for="sync-pass">Password</label>
+        <input class="txt" id="sync-pass" type="password" placeholder="the password of your Supabase user" autocomplete="current-password" style="font-size:12.5px"></div>
+      <div class="row" style="display:flex;gap:7px;margin-top:8px">
+        <button class="btn primary" data-act="sync-signin">${ICON.check} Sign in &amp; pull</button>
+        <button class="btn ghost" data-act="sync-clear">Disconnect</button>
+      </div>
+      <div class="help">Signed in as the user you created under <b>Authentication → Users</b>. The token is kept in this browser only.</div>` : ''}
+      ${st.signedIn ? `<div class="meta-row"><span>${esc2(state)}</span><span>·</span><span>${st.lastSyncAt ? 'last run ' + ago(st.lastSyncAt) : 'no run yet'}</span>
+        ${st.pushed ? `<span>·</span><span>${st.pushed} rows up</span>` : ''}${st.pulled ? `<span>·</span><span>${st.pulled} rows down</span>` : ''}</div>
+      <div class="row" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn primary" data-act="sync-now">${ICON.arrow} Sync now</button>
+        <button class="btn" data-act="sync-push-all">Send everything up</button>
+        <button class="btn ghost" data-act="sync-signout">Sign out</button>
+        <button class="btn ghost" data-act="sync-clear">Forget this project</button>
+      </div>
+      <div class="help">Polls every 60 s and whenever this window is focused. <b>Send everything up</b> ignores the change-tracking and re-sends the whole library — use it after an import, or if a machine has been offline a long time.</div>` : ''}
+    </div>`;
 }
 
 /* ---------- library ---------- */
@@ -442,6 +483,9 @@ function renderSettings() {
   const s = Store.s.settings;
   const accents = ['#2f6df6', '#0f9d8a', '#7b5cd6', '#d98314', '#c1362f', '#2f8a3f', '#b0457a', '#4a5b6a'];
   const tplCount = Store.s.templates.length, phCount = Store.s.phrases.length;
+  let legacyBlob = 0;
+  try { legacyBlob = (localStorage.getItem(LS_KEY) || '').length; } catch (e) { legacyBlob = 0; }
+  if (Store.mode === 'idb' && !legacyBlob) legacyBlob = 0;
   return `
   <div class="main-head"><div><div class="main-title">Settings &amp; backup</div>
     <div class="main-desc">Everything is stored in this browser profile on this machine — no account, no server, nothing sent anywhere. Back it up by exporting.</div></div></div>
@@ -481,6 +525,24 @@ function renderSettings() {
     </div>
 
     <div class="set-card">
+      <h4>${ICON.shelf} Where your data lives</h4>
+      <p class="desc">One local database on this machine — <b>no server, no account, nothing uploaded</b>. Text, files and screenshots are stored as separate rows, so a 4 MB screenshot can no longer stop your templates from saving.</p>
+      <div class="meta-row" id="db-summary"><span class="help">checking…</span></div>
+      <div id="db-tables" class="tagchips" style="margin-top:6px"></div>
+      ${legacyBlob ? `<div class="help" style="margin-top:6px">A pre-migration copy is still in local storage (${esc2(bytes(legacyBlob))}). Keep it as a rollback, or free the space once you have exported a backup.</div>` : ''}
+      <div class="row" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" data-act="db-verify">${ICON.check} Verify database</button>
+        <button class="btn" data-act="db-repair">${ICON.bolt} Rewrite every row</button>
+        <button class="btn" data-act="db-diagnostics">${ICON.copy} Copy diagnostics</button>
+        ${legacyBlob ? `<button class="btn ghost" data-act="db-clear-legacy">Delete the old copy</button>` : ''}
+        <button class="btn ghost" data-act="db-console">Console commands</button>
+      </div>
+      <div class="help">Storage used: <span id="storage-used">…</span> · last write <span id="db-last">…</span></div>
+    </div>
+
+    ${syncCard()}
+
+    <div class="set-card">
       <h4>${ICON.download} Backup &amp; move it</h4>
       <p class="desc">Export writes one JSON file with every template, phrase, category, case, and (optionally) the files themselves. Keep it in your OneDrive / Dropbox / a folder and you can be back up in 10 seconds on any machine.</p>
       <div class="row" style="display:flex;gap:7px;flex-wrap:wrap">
@@ -490,8 +552,7 @@ function renderSettings() {
         <button class="btn" data-act="export-md">Export as Markdown</button>
         <button class="btn" data-act="print">Print cheat sheet</button>
       </div>
-      <div class="help">Current workspace: <b>${tplCount}</b> templates · <b>${phCount}</b> phrases · <b>${Store.s.files.length}</b> files · <b>${Store.s.cases.length}</b> cases.
-      ${navigator.storage?.estimate ? '' : ''} Storage used: <span id="storage-used">…</span></div>
+      <div class="help">Current workspace: <b>${tplCount}</b> templates · <b>${phCount}</b> phrases · <b>${Store.s.files.length}</b> files · <b>${Store.s.cases.length}</b> cases, all in ${Store.mode === 'idb' ? 'the local database' : 'this browser\'s local storage'}.</div>
     </div>
 
     <div class="set-card">

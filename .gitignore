@@ -2,3 +2,15 @@ node_modules/
 test/_dbg*.mjs
 test/_t*.mjs
 *.log
+
+# local data + generated database artefacts (never commit anyone's workspace)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+data/
+osr-desk-backup-*.json
+library.csv

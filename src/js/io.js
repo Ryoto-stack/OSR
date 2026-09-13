@@ -112,6 +112,17 @@ function handleAct(act, id, el, e) {
     case 'noop': break;
     case 'reseed': reseed(); break;
     case 'wipe': wipe(); break;
+    case 'sync-save': syncSave(); break;
+    case 'sync-signin': syncSignIn(); break;
+    case 'sync-signout': Sync.signOut(); Bus.toast('Signed out of sync — the desk keeps working, nothing is sent', '', 3000); render(); break;
+    case 'sync-now': syncNow(); break;
+    case 'sync-push-all': syncPushAll(); break;
+    case 'sync-clear': syncForget(); break;
+    case 'db-verify': dbVerify(); break;
+    case 'db-repair': Store.repair().then((f) => { Bus.toast(`Rewrote ${f.rows} row${f.rows === 1 ? '' : 's'}` + (f.droppedBlobs ? ` and dropped ${f.droppedBlobs} orphan file${f.droppedBlobs === 1 ? '' : 's'}` : ''), 'ok', 5000); render(); }); break;
+    case 'db-diagnostics': dbCopyDiagnostics(); break;
+    case 'db-clear-legacy': dbClearLegacy(); break;
+    case 'db-console': Bus.toast('Open DevTools (F12) and try: await OSRDB.stats() · await OSRDB.verify() · await OSRDB.sql("SELECT title, usage FROM templates ORDER BY usage DESC LIMIT 5")', '', 16000); break;
     case 'skip-fill': break;
     default: break;
   }
@@ -553,6 +564,49 @@ function printSheet() {
   setTimeout(() => { window.print(); setTimeout(() => div.remove(), 800); }, 120);
 }
 
+/* ---------- sync (optional mirror) ---------- */
+function syncSave() {
+  const url = document.getElementById('sync-url')?.value || '';
+  const key = document.getElementById('sync-key')?.value || '';
+  const ok = Sync.setConfig(url, key);
+  if (!ok) { Bus.toast('That does not look like a project URL (https://xxxx.supabase.co) plus a key', 'bad', 6000); return; }
+  Bus.toast('Connected — sign in with your database user to start mirroring', 'ok', 4000);
+  render();
+}
+async function syncSignIn() {
+  const email = document.getElementById('sync-email')?.value || '';
+  const pass = document.getElementById('sync-pass')?.value || '';
+  const ok = await Sync.signIn(email, pass);
+  if (!ok) { Bus.toast('Sign in failed: ' + (Sync.lastError || 'unknown'), 'bad', 9000); render(); return; }
+  const st = Sync.status(Store.s);
+  Bus.toast(`Signed in — ${st.lastPull ? st.lastPull.applied + ' row' + (st.lastPull.applied === 1 ? '' : 's') + ' pulled' : 'ready to sync'}`, 'ok', 5000);
+  Sync.startLoop();
+  render();
+}
+async function syncNow() {
+  const el = document.getElementById('sync-status');
+  Bus.toast('Syncing…', '', 1500);
+  const ok = await Sync.sync();
+  const st = Sync.status(Store.s);
+  Bus.toast(ok && !st.error
+    ? 'Synced' + (st.lastPull ? ` — ${st.lastPull.applied} row${st.lastPull.applied === 1 ? '' : 's'} in, ${st.lastPull.skipped} newer ones kept, ${st.lastPull.removed} deleted here` : '')
+    : 'Sync did not finish: ' + (st.error || 'unknown'), ok ? 'ok' : 'warn', ok ? 6000 : 11000);
+  render();
+}
+async function syncPushAll() {
+  const ok = await Sync.pushAll();
+  const st = Sync.status(Store.s);
+  Bus.toast(ok ? `Sent everything up — ${st.lastPush ? st.lastPush.sent : 0} rows` : 'Could not send: ' + (st.error || 'unknown'), ok ? 'ok' : 'bad', 7000);
+  render();
+}
+async function syncForget() {
+  const ok = await Bus.confirm('Forget this project?', 'The saved URL, key and login are removed from this browser. Nothing is deleted in the database — other machines keep their copies.', 'Turn sync off');
+  if (!ok) return;
+  Sync.setConfig('', '');
+  Bus.toast('Sync is off — this file is local again', 'ok', 4000);
+  render();
+}
+
 /* ---------- danger ---------- */
 async function reseed() {
   const ok = await Bus.confirm('Reset to the starter library?', 'Your own templates will be removed — export a backup first if there is anything you wrote. Your settings and files stay.', 'Reset library');
@@ -565,11 +619,52 @@ async function reseed() {
 async function wipe() {
   const ok = await Bus.confirm('Wipe everything?', 'Templates, phrases, cases, shelf files and settings — all of it, from this browser. This cannot be undone.', 'Wipe it');
   if (!ok) return;
-  Store.s.files.forEach((f) => Store.Vault.del(f.id));
-  Store.resetAll();
+  const ids = Store.s.files.map((f) => f.id);
+  await Promise.all(ids.map((id) => Store.Vault.del(id).catch(() => {})));
+  await Store.resetAll();
   const seed = seedData();
   Store.edit((st) => { st.onboarded = true; st.categories = seed.cats; st.templates = seed.templates; st.phrases = seed.phrases; }, 'data');
   Bus.toast('Fresh start with the starter library', 'ok');
+}
+
+/* ---------- the database panel (Settings → Where your data lives) ---------- */
+async function dbVerify() {
+  const r = await Store.verify();
+  if (r.ok) {
+    Bus.toast('Database checked — every row round-trips, ' + (r.counts && r.counts.templates != null ? r.counts.templates + ' template rows, ' : '') + 'nothing orphaned', 'ok', 6000);
+    return;
+  }
+  const list = (r.problems || []).slice(0, 8);
+  const m = openModal(`
+    <div class="modal-head"><h3>${ICON.warn || ICON.bolt} What the check found</h3><button class="btn icon ghost" data-close>${ICON.close}</button></div>
+    <div class="modal-body">
+      <p class="desc">Engine: <b>${esc(r.engine)}</b>. ${list.length} thing${list.length === 1 ? '' : 's'} to look at — none of it is lost, the desk keeps working from memory:</p>
+      <ul style="margin:0 0 0 18px;padding:0;line-height:1.6">${list.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+      ${r.extra > 0 ? `<p class="help">…and ${r.extra} more.</p>` : ''}
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="v-copy">${ICON.copy} Copy report</button>
+      <span class="grow" style="flex:1"></span>
+      <button class="btn primary" id="v-fix">${ICON.bolt} Rewrite every row</button>
+    </div>`);
+  const report = ['OSR Desk · verify', 'engine: ' + r.engine, ''].concat(list).join('\n');
+  m.el.querySelector('#v-copy').onclick = async () => { try { await navigator.clipboard.writeText(report); Bus.toast('Report copied — paste it to whoever is helping you', 'ok'); } catch (e) { Bus.toast('Clipboard blocked — it is in the console instead', 'warn'); console.log(report); } };
+  m.el.querySelector('#v-fix').onclick = async () => { const f = await Store.repair(); m.close(); Bus.toast(`Rewrote ${f.rows} row${f.rows === 1 ? '' : 's'}` + (f.droppedBlobs ? ` and dropped ${f.droppedBlobs} orphan file${f.droppedBlobs === 1 ? '' : 's'}` : ''), 'ok', 5000); };
+}
+
+async function dbCopyDiagnostics() {
+  // DB.diagnostics() returns an object — it must go on the clipboard as text
+  const text = JSON.stringify(DB.diagnostics(Store.s), null, 2);
+  try { await navigator.clipboard.writeText(text); Bus.toast('Diagnostics copied — this is the one thing to paste when the desk misbehaves', 'ok', 6000); }
+  catch (e) { console.log(text); Bus.toast('Clipboard blocked here — the diagnostics were printed to the console (F12)', 'warn', 7000); }
+}
+
+async function dbClearLegacy() {
+  const ok = await Bus.confirm('Delete the old local-storage copy?', 'Your workspace is in the database now. The browser also kept the pre-migration snapshot in local storage — deleting it frees that space, but you lose the automatic rollback copy. Have you exported a backup recently?', 'Delete the old copy');
+  if (!ok) return;
+  ['osr.desk.state.v1', 'osr.desk.state.v2', LS_KEY].forEach((k) => KV.del(k));
+  Bus.toast('Old copy removed — the database is the only store now', 'ok', 4000);
+  render();
 }
 
 /* ---------- help / onboarding ---------- */
@@ -677,6 +772,7 @@ function bindDelegates() {
     }
   });
   window.addEventListener('beforeunload', () => Store.flush());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && Store.isDirty) Store.flush(); });
   setInterval(() => { if (Store.isDirty) Store.flush(); }, 8000);
   if (typeof window.matchMedia === 'function') window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme());
 }
@@ -732,40 +828,68 @@ function cardMenu(x, y, id) {
 }
 
 /* ---------- boot ---------- */
-function boot() {
-  const st = Store.load();
+function saveLabel(kind) {
+  const el = document.getElementById('save-state');
+  if (!el) return;
+  el.classList.toggle('dirty', kind === 'dirty');
+  const where = Store.mode === 'idb' ? 'database' : 'this PC';
+  el.querySelector('span').textContent = !KV.available && Store.mode !== 'idb'
+    ? 'Not persisting!'
+    : kind === 'dirty' ? 'Saving…'
+    : Store.mode === 'idb' ? 'Saved to the local database'
+    : 'Saved on ' + where;
+  el.title = Store.mode === 'idb'
+    ? 'IndexedDB · ' + DB.name + ' · no server, nothing leaves this machine'
+    : 'localStorage · ' + LS_KEY + (DB.lastError ? ' · database unavailable: ' + DB.lastError : '');
+}
+
+async function boot() {
+  const st = await Store.init();
   if (st.__fresh) {
     const seed = seedData();
     st.categories = seed.cats;
     st.templates = seed.templates;
     st.phrases = seed.phrases;
     delete st.__fresh;
-    Store.save();
+    await Store.flush();
+  } else if (Store.mode === 'idb') {
+    await Store.flush();     // picks up the seeded rows / mirror marker
   }
   applyTheme();
   render();
+  saveLabel('saved');
   bindKeys();
   bindDnD();
   bindDelegates();
   Store.subscribe((kind) => {
-    if (kind === 'dirty' || kind === 'saved') {
-      const el = document.getElementById('save-state');
-      if (el) {
-        el.classList.toggle('dirty', kind === 'dirty');
-        el.querySelector('span').textContent = !KV.available ? 'Not persisting!' : kind === 'dirty' ? 'Saving…' : 'Saved on this PC';
-      }
-      return;
-    }
+    if (kind === 'dirty' || kind === 'saved') { saveLabel(kind); return; }
     render();
   });
-  if (!KV.available) {
-    Bus.toast('This browser won’t save between reloads (storage blocked). Use Settings → Export before closing, or run it from a normal http:// address.', 'bad', 12000);
+  if (Store.mode !== 'idb') {
+    Bus.toast(DB.lastError
+      ? 'The browser database is unavailable (' + DB.lastError + '), so this desk is saving into localStorage instead — it tops out around 5 MB. Run it over http:// (open-server.sh) to get the database back.'
+      : 'This browser won’t save between reloads (storage blocked). Use Settings → Export before closing, or run it from a normal http:// address.', 'bad', 12000);
   }
+  /* optional mirror: restore the saved project + login, then keep it warm */
+  Sync.restore();
+  if (Sync.enabled && Sync.signedIn) {
+    Sync.startLoop();
+    Sync.pull().catch(() => {});
+  }
+  Store.subscribe((kind) => { if (kind === 'saved') Sync.queuePush(); });
+
+  /* two windows, one database: if the other one wrote, re-read and re-render */
+  DB.openChannel((msg) => {
+    if (msg.kind === 'degraded') { Bus.toast('Another window could not write to the database and fell back to localStorage. Export a backup from that window.', 'warn', 9000); return; }
+    if (Store.isDirty) return;           // we have newer edits than the ping; keep ours
+    Store.reload().then((changed) => { if (changed) Bus.toast('Picked up changes from your other window', '', 2600); });
+  });
   document.getElementById('mod-key').textContent = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl';
   if (!Store.s.onboarded) setTimeout(() => openHelp(true), 320);
   window.addEventListener('error', (e) => {
     console.error(e.error || e.message);
   });
+  window.__osrBooted = true;
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
