@@ -1,7 +1,9 @@
 # OSR · Online Support Desk
 
 A personal, offline workspace for an Online Support Representative. It is **not** a company
-tool, it talks to **no server**, and it needs **no account**. One HTML file that holds:
+tool, it talks to **no server** and needs **no account** — unless you switch on the opt-in
+mirror yourself ([docs/SYNC.md](docs/SYNC.md)), which never becomes a requirement. One HTML
+file that holds:
 
 1. your reply **template library** (every card has a **Copy** and an **Edit** button),
 2. a **grab-and-go phrase bank** for single sentences,
@@ -162,6 +164,11 @@ the console API. The short version:
   gives ~5 MB to one value, so a big pasted screenshot used to be able to stop saving entirely.
 * Nothing is uploaded, nothing is synced, nothing is logged. Autosave is debounced ~260 ms and
   flushed on tab close *and* on tab hide (the latter is what mobile and Safari actually do).
+* **Optional, off by default:** Settings → *Sync* will mirror the **text** rows (templates,
+  phrases, categories, cases, remembered variables, settings) into one table in a Postgres you
+  own — one row per record, diffed pushes, tombstones for deletes. It makes zero requests until
+  you type a URL and sign in, it never blocks a save, and **the file shelf and its bytes never
+  leave the machine**. Turning it off again is one button. See [docs/SYNC.md](docs/SYNC.md).
 * **No database? No problem.** If `indexedDB` is missing, blocked, locked by another window, or
   refuses a write, the desk keeps working on the old `localStorage` blob and says so out loud —
   it never quietly drops edits.
@@ -198,9 +205,12 @@ The real source is `src/` — plain HTML/CSS/vanilla JS, no framework, no build 
 src/index.html      shell
 src/styles.css      all the visual language (CSS custom properties up top)
 src/js/db.js        THE DATABASE: tables, indexes, migration, diff-writes, verify/repair, OSRDB
+src/js/sync.js      the optional mirror — the only file that can reach the network; off until configured
+supabase/schema.sql the entire backend for that mirror: one table, one RLS policy, one trigger
 src/js/store.js     in-memory workspace on top of it, placeholder engine, localStorage fallback
 tools/osr-db.mjs    offline CLI: validate a backup, build SQLite from it, query it, CSV it
 docs/DATABASE.md    schema, failure modes, console API, "what to send when it's broken"
+docs/SYNC.md        how the optional mirror works, what it never sends, how to remove it
 src/js/ui.js        rendering only (data-act attributes drive everything)
 src/js/app.js       render loop, clipboard, fill dialog, editor, keyboard
 src/js/panels.js    shelf, drag & drop, paste, cases, phrase editing
@@ -210,10 +220,11 @@ src/data/seed.js    the starter library — edit freely, then `npm run build`
 
 ```bash
 npm run build      # re-inlines src/ into OSR-Desk.html + index.html
-npm test           # build, CSS lint, then 142 assertions against the real built file
+npm test           # build, CSS lint, then 427 assertions against the real built file
 npm run test:ui    # just the main flows (copy, fill, search, editor, files, cases, backup…)
 npm run test:flows # drag & drop, paste, undo, storage failure, oversized files, safety
 npm run test:db    # the database itself: rows, migration, fallbacks, blobs, verify/repair
+npm run test:sync  # the mirror, against a fake Supabase: diff, tombstones, conflicts, outages
 npm run test:tools # the offline CLI: inspect, sqlite, query, csv, round-trip
 npm run db:inspect -- path/to/backup.json    # validate an export (no deps, Node 22.5+)
 ```
@@ -224,12 +235,16 @@ the command palette, keyboard-only navigation, phrase copying, file ingest and a
 the case board, settings, export/import/merge, CSV import, Markdown export, print sheet,
 category CRUD, `Ctrl+B`, a hostile browser with storage disabled, 50 MB-limit files, and
 markup-injection attempts on titles/bodies/links. The CSS is linted for balance and for
-classes used in JS that were never styled. **334 assertions in total** (93 UI flows · 49 deeper flows · 138 database · 54 CLI).
+classes used in JS that were never styled. **427 assertions in total** (93 UI flows · 49 deeper
+flows · 143 database · 88 sync · 54 CLI).
 
 The database suite is the interesting one: it boots the built file against a real IndexedDB
 implementation and asserts on actual rows — including "the browser refused the write, did the
 edit survive?" and "did the pre-database workspace migrate without being thrown away?".
-`node_modules` is dev-only (`fake-indexeddb` for the shim); the shipped file has no dependencies.
+`node_modules` is dev-only (`fake-indexeddb` for the shim); the shipped file has no
+dependencies. `test/sync.mjs` runs the whole mirror against a throwaway in-process stand-in for
+Supabase — sign-in failure, an RLS refusal, a dead socket, a revoked token — so nothing in
+`npm test` ever touches a real server or needs an account.
 
 Clearing your own data: Settings → **Wipe everything** drops every table (blobs included) and
 re-seeds the starter library so you're never at a blank page. From DevTools, `await OSRDB.wipe()`
@@ -258,8 +273,8 @@ lives in a pinned second window, `Ctrl+K`, copy, back.
 
 ## Roadmap ideas (not built, on purpose)
 
-A shared/hosted database (that's the one thing that would cost the "no server, no account"
-promise — see the last section of `docs/DATABASE.md`) ·
+End-to-end encryption for the optional mirror · file-shelf bytes over sync (deliberately not
+done — see `docs/SYNC.md`) ·
 Auto-timestamped reply SLA countdowns · per-client variable memory (not per-day) · a "was this
 resolved?" follow-up generator · folder-of-folders for multi-product desks · Web Extension to
 copy templates into any web mail client.

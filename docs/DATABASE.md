@@ -167,11 +167,24 @@ call. `test/dbtools.mjs` (54) covers the CLI.
 
 ## If this ever wants to be a *shared* database
 
-Deliberately not built — the desk's whole argument is "no server, no account".
-The seam is small if you ever want it: `db.js` is the only module that touches
-`indexedDB`, and it already exposes `readAll / flushState / writeAll / stats /
-verify` with an engine label, so a `Postgres`/`Supabase`/`SQLite-over-HTTP`
-implementation would be a second engine behind the same API plus a `deviceId`
-conflict rule (rows already carry `updatedAt`, and `meta.saved` carries the
-writer). That needs three things this project currently refuses: a host, a
-secret, and a sync policy for "two machines edited the same template".
+Built — but as a door you have to open, not a wall you live in. `src/js/sync.js`
+mirrors the text rows into a Postgres table you own (`supabase/schema.sql`) and
+is the only module in the app that calls `fetch`; `db.js` still makes no network
+call and still doesn't know sync exists. That separation is the point:
+
+* sync reads `Store.s` / `Store.flushState()` and writes through `Store.edit` —
+  it never opens a transaction, never re-implements a table, and never becomes a
+  second source of truth. `test/db.mjs` keeps asserting that `db.js` contains no
+  `fetch`/`XMLHttpRequest`/`sendBeacon` at all;
+* the three things this project used to refuse are answered by one design rule
+  each: a **host** you supply (and nothing happens until you do), a **secret**
+  that is a publishable key plus a normal login rather than a service-role key,
+  and a **conflict policy** of last-write-wins on `updatedAt`, where a row the
+  local machine has edited but not yet pushed is kept *and stays dirty* instead
+  of being clobbered;
+* `Vault` / `blobs` / `files` are excluded by `localRows()`, which is why the
+  database can grow a 50 MB screenshot and sync still sends nothing but text.
+
+Setup, the wire contract and the removal path are in [SYNC.md](SYNC.md).
+Behavioural tests live in `test/sync.mjs` (88 assertions, fake Supabase server,
+no network required).

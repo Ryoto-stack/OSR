@@ -418,6 +418,17 @@ console.log('\n[15] nothing leaves the machine');
   check('db.js makes no network call', !/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|navigator\.serviceWorker|import\s*\(/.test(dbSrc));
   check('store.js makes no network call', !/\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon/.test(fs.readFileSync('src/js/store.js', 'utf8')));
   check('the bundle has no remote URL to call', !/(fetch|open)\s*\(\s*['"`]https?:/.test(html));
+  // the opt-in mirror must stay one file, and must stay a door rather than a wall
+  const files = fs.readdirSync('src/js').filter((f) => f.endsWith('.js'));
+  const reaching = files.flatMap((f) => (fs.readFileSync('src/js/' + f, 'utf8').match(/\bfetch\s*\(\s*[^'")\s][^)]{0,60}/g) || [])
+    .filter((c) => !(f === 'sync.js' || /^fetch\(fd\[/.test(c)))
+    .map((c) => f + ': ' + c.trim().slice(0, 50)));
+  check('only sync.js can reach a network address (a local data URL is fine)', reaching.length === 0, JSON.stringify(reaching));
+  const syncSrc = fs.readFileSync('src/js/sync.js', 'utf8');
+  check('sync.js has no vendor host written into it', !/supabase\.(co|in|net)|postgres\.|\.(herokuapp|firebaseio)\.(com|app)/i.test(syncSrc));
+  check('sync.js goes through the store, never past it into the database', !/\bDB\.(read|readAll|writeAll|flushState|tx|open|put|delete)\b/.test(syncSrc) && /Store\.edit\(/.test(syncSrc) && /Store\.flush\(/.test(syncSrc));
+  check('db.js does not know sync exists', !/OSRSync|\bsupabase\b|desk_document/i.test(dbSrc));
+  check('the mirror refuses to run before it is configured', /if \(!enabled\(\)\) throw new Error\('not configured'\)/.test(syncSrc) && /if \(!enabled\(\)\) \{ lastError = 'not configured'; return false; \}/.test(syncSrc));
   check('no analytics / telemetry identifiers in the bundle', !/gtag|google-analytics|posthog|sentry|mixpanel/i.test(html));
   check('the only allowed storage APIs are IDB + localStorage', !/document\.cookie|sessionStorage|caches\.open/.test(dbSrc));
   const diag = JSON.parse(await a.eval('OSRDB.diagnostics()'));

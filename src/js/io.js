@@ -112,6 +112,12 @@ function handleAct(act, id, el, e) {
     case 'noop': break;
     case 'reseed': reseed(); break;
     case 'wipe': wipe(); break;
+    case 'sync-save': syncSave(); break;
+    case 'sync-signin': syncSignIn(); break;
+    case 'sync-signout': Sync.signOut(); Bus.toast('Signed out of sync — the desk keeps working, nothing is sent', '', 3000); render(); break;
+    case 'sync-now': syncNow(); break;
+    case 'sync-push-all': syncPushAll(); break;
+    case 'sync-clear': syncForget(); break;
     case 'db-verify': dbVerify(); break;
     case 'db-repair': Store.repair().then((f) => { Bus.toast(`Rewrote ${f.rows} row${f.rows === 1 ? '' : 's'}` + (f.droppedBlobs ? ` and dropped ${f.droppedBlobs} orphan file${f.droppedBlobs === 1 ? '' : 's'}` : ''), 'ok', 5000); render(); }); break;
     case 'db-diagnostics': dbCopyDiagnostics(); break;
@@ -558,6 +564,49 @@ function printSheet() {
   setTimeout(() => { window.print(); setTimeout(() => div.remove(), 800); }, 120);
 }
 
+/* ---------- sync (optional mirror) ---------- */
+function syncSave() {
+  const url = document.getElementById('sync-url')?.value || '';
+  const key = document.getElementById('sync-key')?.value || '';
+  const ok = Sync.setConfig(url, key);
+  if (!ok) { Bus.toast('That does not look like a project URL (https://xxxx.supabase.co) plus a key', 'bad', 6000); return; }
+  Bus.toast('Connected — sign in with your database user to start mirroring', 'ok', 4000);
+  render();
+}
+async function syncSignIn() {
+  const email = document.getElementById('sync-email')?.value || '';
+  const pass = document.getElementById('sync-pass')?.value || '';
+  const ok = await Sync.signIn(email, pass);
+  if (!ok) { Bus.toast('Sign in failed: ' + (Sync.lastError || 'unknown'), 'bad', 9000); render(); return; }
+  const st = Sync.status(Store.s);
+  Bus.toast(`Signed in — ${st.lastPull ? st.lastPull.applied + ' row' + (st.lastPull.applied === 1 ? '' : 's') + ' pulled' : 'ready to sync'}`, 'ok', 5000);
+  Sync.startLoop();
+  render();
+}
+async function syncNow() {
+  const el = document.getElementById('sync-status');
+  Bus.toast('Syncing…', '', 1500);
+  const ok = await Sync.sync();
+  const st = Sync.status(Store.s);
+  Bus.toast(ok && !st.error
+    ? 'Synced' + (st.lastPull ? ` — ${st.lastPull.applied} row${st.lastPull.applied === 1 ? '' : 's'} in, ${st.lastPull.skipped} newer ones kept, ${st.lastPull.removed} deleted here` : '')
+    : 'Sync did not finish: ' + (st.error || 'unknown'), ok ? 'ok' : 'warn', ok ? 6000 : 11000);
+  render();
+}
+async function syncPushAll() {
+  const ok = await Sync.pushAll();
+  const st = Sync.status(Store.s);
+  Bus.toast(ok ? `Sent everything up — ${st.lastPush ? st.lastPush.sent : 0} rows` : 'Could not send: ' + (st.error || 'unknown'), ok ? 'ok' : 'bad', 7000);
+  render();
+}
+async function syncForget() {
+  const ok = await Bus.confirm('Forget this project?', 'The saved URL, key and login are removed from this browser. Nothing is deleted in the database — other machines keep their copies.', 'Turn sync off');
+  if (!ok) return;
+  Sync.setConfig('', '');
+  Bus.toast('Sync is off — this file is local again', 'ok', 4000);
+  render();
+}
+
 /* ---------- danger ---------- */
 async function reseed() {
   const ok = await Bus.confirm('Reset to the starter library?', 'Your own templates will be removed — export a backup first if there is anything you wrote. Your settings and files stay.', 'Reset library');
@@ -821,6 +870,14 @@ async function boot() {
       ? 'The browser database is unavailable (' + DB.lastError + '), so this desk is saving into localStorage instead — it tops out around 5 MB. Run it over http:// (open-server.sh) to get the database back.'
       : 'This browser won’t save between reloads (storage blocked). Use Settings → Export before closing, or run it from a normal http:// address.', 'bad', 12000);
   }
+  /* optional mirror: restore the saved project + login, then keep it warm */
+  Sync.restore();
+  if (Sync.enabled && Sync.signedIn) {
+    Sync.startLoop();
+    Sync.pull().catch(() => {});
+  }
+  Store.subscribe((kind) => { if (kind === 'saved') Sync.queuePush(); });
+
   /* two windows, one database: if the other one wrote, re-read and re-render */
   DB.openChannel((msg) => {
     if (msg.kind === 'degraded') { Bus.toast('Another window could not write to the database and fell back to localStorage. Export a backup from that window.', 'warn', 9000); return; }
